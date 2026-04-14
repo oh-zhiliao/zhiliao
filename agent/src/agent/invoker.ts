@@ -183,7 +183,7 @@ export class AgentInvoker {
 
     // Auto-inject project memory at session start so the LLM always has context
     let memoryContext = "";
-    if (entry.history.length === 1 && this.tools) {
+    if (entry.history.length === 1 && this.tools?.hasTool("memo-tools.get_memory")) {
       try {
         const memResult = await this.tools.executeTool("memo-tools.get_memory", {});
         if (memResult && !memResult.startsWith("No project memory")) {

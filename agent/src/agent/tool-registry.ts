@@ -51,6 +51,10 @@ export class ToolRegistry {
     return plugin.executeTool(toolName, input);
   }
 
+  hasTool(fullName: string): boolean {
+    return this.knownTools.has(fullName);
+  }
+
   isCheapTool(fullName: string): boolean {
     return this.cheapToolsCache.has(fullName);
   }
