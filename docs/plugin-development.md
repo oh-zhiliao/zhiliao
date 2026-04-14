@@ -21,7 +21,9 @@ agent/plugins/                    # gitignored, 部署时组装
     config.yaml                   # 必须存在，插件配置
     config.example.yaml           # 文档化必填字段（推荐）
     src/
-      index.ts                    # 入口，default export 一个 class
+      index.ts                    # 源码入口，default export 一个 class
+    dist/                         # 编译产物（可选，优先于 src/）
+      index.js                    # 编译后的入口
     package.json                  # 插件自己的依赖（可选）
     node_modules/                 # 独立安装（可选）
     tsconfig.json                 # 插件自己的 TS 配置（可选）
@@ -31,7 +33,7 @@ agent/plugins/                    # gitignored, 部署时组装
 - 文件夹名即命名空间：`my-plugin/` → 工具前缀 `my-plugin.`
 - `config.yaml` 必须存在，否则目录被忽略
 - `config.yaml` 中设 `enabled: false` 可禁用插件
-- 入口文件必须是 `src/index.ts` 或 `src/index.js`
+- 入口文件查找顺序：`dist/index.js` → `dist/index.ts` → `src/index.js` → `src/index.ts`（优先使用编译产物）
 
 ## ToolPlugin Interface
 
@@ -169,7 +171,7 @@ max_results: 50
   │    ├─ 读取 config.yaml → 环境变量替换 → 解析
   │    ├─ 检查 enabled !== false
   │    ├─ 检查 package.json → node_modules（缺失则 warn）
-  │    ├─ dynamic import src/index.ts
+  │    ├─ dynamic import {dist,src}/index.{js,ts}（优先 dist/）
   │    ├─ const plugin = new PluginClass()
   │    ├─ plugin.name = "my-plugin"     ← loader 设置
   │    ├─ await plugin.init(config)     ← 你的初始化逻辑
@@ -460,35 +462,27 @@ getCheapTools(): string[] {
 ### 安装插件
 
 ```bash
-cd agent/plugins/
-
-# 从 git 克隆
-git clone --depth 1 git@github.com:org/zhiliao-plugin-weather.git weather
-(cd weather && npm install --production)
-
-# 配置
-cp weather/config.example.yaml weather/config.yaml
-# 编辑 config.yaml 填入真实凭据
+# 克隆到 plugins/ 目录
+cd plugins/
+git clone https://github.com/oh-zhiliao/my-plugin.git
+cp my-plugin/config.example.yaml my-plugin/config.yaml
+# 编辑 config.yaml 填入真实凭据（密钥直接写入，各插件 .gitignore 已排除 config.yaml）
 ```
 
 ### Docker 环境
 
-插件通过 volume mount 单独挂载进容器（插件可以在仓库外部独立管理）：
+所有插件通过 `./plugins:/app/plugins` 统一挂载：
 
 ```yaml
 services:
   agent:
     volumes:
-      - /path/to/my-plugin:/app/plugins/my-plugin:ro
-    environment:
-      - MY_PLUGIN_API_KEY=${MY_PLUGIN_API_KEY}  # 插件 config.yaml 中引用的环境变量
+      - ./plugins:/app/plugins
 ```
 
-插件的 `config.yaml` 使用 `${VAR_NAME}` 引用环境变量，需要在 `docker-compose.yml` 的 `environment` 中传入，并在 `.env` 文件中设置实际值。
+**注意**: Dockerfile 使用 `--import tsx/esm` 启动 Node.js，因此插件可以直接使用 `.ts` 源码，无需预编译。也可以预编译到 `dist/`，loader 会优先加载编译产物。
 
-**注意**: Dockerfile 使用 `--import tsx/esm` 启动 Node.js，因此插件可以直接使用 `.ts` 源码，无需预编译。
-
-**Native modules**: 如果插件依赖原生模块（如 `better-sqlite3`），不要使用 `:ro` 挂载 — 容器启动时 entrypoint 脚本会自动检测并在容器内安装缺失的 `node_modules`。
+**Native modules**: 如果插件依赖原生模块（如 `better-sqlite3`），不要使用 `:ro` 挂载 — 容器启动时 entrypoint 脚本会自动检测：缺失 `node_modules` 则 `npm install`，已有则 `npm rebuild` 以匹配容器平台。只读挂载的插件会被跳过。
 
 ### 验证
 
@@ -545,7 +539,7 @@ it("plugin tools are namespaced", () => {
 
 - [ ] `config.yaml` 存在且可解析
 - [ ] `config.example.yaml` 文档化所有字段
-- [ ] `src/index.ts` default export 一个实现 `ToolPlugin` 的 class
+- [ ] `src/index.ts`（或 `dist/index.js`）default export 一个实现 `ToolPlugin` 的 class
 - [ ] `init()` 验证必填配置，缺失时 throw 有意义的错误
 - [ ] 工具名使用 snake_case，不含命名空间前缀
 - [ ] 工具描述清晰，LLM 能理解何时调用
