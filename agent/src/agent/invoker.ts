@@ -190,6 +190,9 @@ export class AgentInvoker {
           const memResult = await this.tools.executeTool("memo-tools.get_memory", {});
           if (memResult && !memResult.startsWith("No project memory")) {
             memoryContext += `\n\n## Project Memory\n${memResult}`;
+            onProgress?.(`[auto] get_memory: ${memResult.slice(0, 200)}...`);
+          } else {
+            onProgress?.(`[auto] get_memory: (empty)`);
           }
         }
         // Every message: search memory for relevant context
@@ -197,6 +200,9 @@ export class AgentInvoker {
           const searchResult = await this.tools.executeTool("memo-tools.memory_search", { query: question });
           if (searchResult && !searchResult.startsWith("No relevant") && !searchResult.startsWith("Memory search")) {
             memoryContext += `\n\n## Relevant Memory (auto-retrieved)\n${searchResult}`;
+            onProgress?.(`[auto] memory_search("${question.slice(0, 50)}"): ${searchResult.slice(0, 200)}...`);
+          } else {
+            onProgress?.(`[auto] memory_search("${question.slice(0, 50)}"): (no results)`);
           }
         }
       } catch { /* ignore — memory is optional */ }
@@ -250,6 +256,7 @@ export class AgentInvoker {
           ? await this.tools.executeTool(call.name, call.input)
           : `Tool not available: ${call.name}`;
         toolResultPairs.push({ id: call.id, name: call.name, input: call.input, result });
+        onProgress?.(`result: ${call.name} → ${result.slice(0, 300)}${result.length > 300 ? "..." : ""}`);
       }
 
       this.pushToolResults(entry, toolResultPairs);
