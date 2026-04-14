@@ -123,6 +123,7 @@ async function main() {
   const pluginContext: PluginContext = {
     sendFeishuMessage: (chatId, msgType, content) =>
       feishuClient.sendToChat(chatId, msgType, content),
+    callLLM: (options) => agent.simpleLLMCall(options),
   };
   await toolRegistry.startAll(pluginContext);
 

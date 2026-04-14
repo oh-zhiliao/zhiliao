@@ -45,6 +45,14 @@ export interface ToolPlugin {
 /** Core capabilities exposed to plugins that need them (e.g., sending Feishu messages). */
 export interface PluginContext {
   sendFeishuMessage(chatId: string, msgType: string, content: string): Promise<void>;
+  /** Simple text-in, text-out LLM call for plugin background tasks. No tool use or streaming. */
+  callLLM?(options: {
+    system: string;
+    prompt: string;
+    maxTokens?: number;
+    model?: string;
+    timeoutMs?: number;
+  }): Promise<string>;
 }
 
 /** Context passed to command handlers when a user invokes /{plugin-name} {subcommand}. */

@@ -525,6 +525,45 @@ export class AgentInvoker {
     }
   }
 
+  async simpleLLMCall(options: {
+    system: string;
+    prompt: string;
+    maxTokens?: number;
+    model?: string;
+    timeoutMs?: number;
+  }): Promise<string> {
+    const maxTokens = options.maxTokens ?? 4096;
+    const timeoutMs = options.timeoutMs ?? 120_000;
+    const model = options.model ?? this.config.model;
+
+    if (this.isOpenAI) {
+      const response = await this.openaiClient!.chat.completions.create(
+        {
+          model,
+          max_tokens: maxTokens,
+          messages: [
+            { role: "system", content: options.system },
+            { role: "user", content: options.prompt },
+          ],
+        },
+        { signal: AbortSignal.timeout(timeoutMs) }
+      );
+      return response.choices[0]?.message?.content ?? "";
+    }
+
+    const response = await this.anthropicClient!.messages.create(
+      {
+        model,
+        max_tokens: maxTokens,
+        system: options.system,
+        messages: [{ role: "user", content: options.prompt }],
+      },
+      { signal: AbortSignal.timeout(timeoutMs) }
+    );
+    const textBlock = response.content.find((b: any) => b.type === "text");
+    return (textBlock as any)?.text ?? "";
+  }
+
   clearSession(sessionId: string): void {
     if (this.db) {
       this.db.deleteSession(sessionId);
