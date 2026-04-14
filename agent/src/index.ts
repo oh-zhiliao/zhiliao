@@ -111,6 +111,7 @@ async function main() {
     toolRegistry,
     secretPatterns: pluginSecretPatterns,
     maxMessageAgeMs,
+    admins: config.admins,
   });
 
   feishuClient.onMessage((data) => {

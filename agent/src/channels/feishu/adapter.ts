@@ -21,6 +21,7 @@ export interface FeishuAdapterDeps {
   toolRegistry: ToolRegistry;
   secretPatterns?: RegExp[];
   maxMessageAgeMs?: number;
+  admins?: string[];
 }
 
 export class FeishuAdapter {
@@ -77,10 +78,16 @@ export class FeishuAdapter {
       }
     }
 
-    // Check /debug prefix (after mention stripping)
-    const debugMode = text.trimStart().startsWith("/debug");
-    if (debugMode) {
-      text = text.trimStart().slice(6).trim();
+    // Check /debug or /debug2 prefix (after mention stripping)
+    let debugLevel: 0 | 1 | 2 = 0;
+    const trimmed = text.trimStart();
+    if (trimmed.startsWith("/debug2")) {
+      const isAdmin = this.deps.admins?.includes(senderId);
+      debugLevel = isAdmin ? 2 : 1;  // non-admin falls back to basic
+      text = trimmed.slice(7).trim();
+    } else if (trimmed.startsWith("/debug")) {
+      debugLevel = 1;
+      text = trimmed.slice(6).trim();
     }
 
     if (!text) return; // Empty after stripping
@@ -93,10 +100,10 @@ export class FeishuAdapter {
       senderName: "",
       messageId: msg.message_id,
       logId,
-      debugMode,
+      debugLevel,
     };
 
-    console.log(`[${logId}] recv ${chatType} msg from=${senderId} chat=${msg.chat_id} msgId=${msg.message_id} debug=${debugMode} text=${JSON.stringify(text.slice(0, 100))}`);
+    console.log(`[${logId}] recv ${chatType} msg from=${senderId} chat=${msg.chat_id} msgId=${msg.message_id} debug=${debugLevel > 0} text=${JSON.stringify(text.slice(0, 100))}`);
 
     // Route: DM → commands or questions; Group → @mention required
     try {
@@ -223,11 +230,15 @@ export class FeishuAdapter {
       if (!sentThinking) {
         sentThinking = true;
         this.replySafe(ctx, "正在查阅资料...");
-        if (ctx.debugMode) {
+        if (ctx.debugLevel >= 1) {
           this.replySafe(ctx, `[debug] session=${sessionKey}`);
         }
       }
-      if (ctx.debugMode) {
+      if (ctx.debugLevel >= 2) {
+        // Verbose: show everything (auto-inject, tool results, etc.)
+        this.replySafe(ctx, `[debug] ${info}`);
+      } else if (ctx.debugLevel >= 1 && info.startsWith("tool:")) {
+        // Basic: only show tool call names
         this.replySafe(ctx, `[debug] ${info}`);
       }
     };

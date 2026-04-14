@@ -6,7 +6,7 @@ export interface FeishuMessageContext {
   senderName: string;
   messageId: string;
   logId: string;
-  debugMode: boolean;
+  debugLevel: 0 | 1 | 2;  // 0=off, 1=/debug (basic), 2=/debug2 (verbose, admin only)
 }
 
 export interface ParsedSessionKey {
