@@ -181,13 +181,23 @@ export class AgentInvoker {
       : now.toTimeString().split(" ")[0].slice(0, 5);
     const dateLine = `\n\nCurrent date and time: ${dateStr} ${timeStr}${tz ? ` (${tz})` : ""}`;
 
-    // Auto-inject project memory at session start so the LLM always has context
+    // Auto-inject memory context so the LLM always has relevant knowledge
     let memoryContext = "";
-    if (entry.history.length === 1 && this.tools?.hasTool("memo-tools.get_memory")) {
+    if (this.tools?.hasTool("memo-tools.get_memory")) {
       try {
-        const memResult = await this.tools.executeTool("memo-tools.get_memory", {});
-        if (memResult && !memResult.startsWith("No project memory")) {
-          memoryContext = `\n\n## Project Memory\n${memResult}`;
+        // Session start: inject project overview
+        if (entry.history.length === 1) {
+          const memResult = await this.tools.executeTool("memo-tools.get_memory", {});
+          if (memResult && !memResult.startsWith("No project memory")) {
+            memoryContext += `\n\n## Project Memory\n${memResult}`;
+          }
+        }
+        // Every message: search memory for relevant context
+        if (this.tools.hasTool("memo-tools.memory_search")) {
+          const searchResult = await this.tools.executeTool("memo-tools.memory_search", { query: question });
+          if (searchResult && !searchResult.startsWith("No relevant") && !searchResult.startsWith("Memory search")) {
+            memoryContext += `\n\n## Relevant Memory (auto-retrieved)\n${searchResult}`;
+          }
         }
       } catch { /* ignore — memory is optional */ }
     }
