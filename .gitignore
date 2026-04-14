@@ -1,0 +1,16 @@
+node_modules/
+dist/
+data/
+*.sqlite
+.env
+config.yaml
+SOUL.md
+
+memo/.venv/
+memo/__pycache__/
+memo/tests/__pycache__/
+.worktrees/
+plugins/
+deployment.md
+docs/superpowers/plans/
+docs/superpowers/specs/

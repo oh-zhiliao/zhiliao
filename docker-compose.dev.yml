@@ -1,0 +1,16 @@
+# Dev override: use pre-built base image + mount local dist/prompt.
+# Prereqs: build base image once, then compile TS locally before each restart.
+#
+#   docker build -f agent/Dockerfile.base -t zhiliao-agent-base agent/
+#   cd agent && npx tsc
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d agent
+#
+services:
+  agent:
+    build: !reset null
+    image: zhiliao-agent-base
+    volumes:
+      - ./agent/dist:/app/dist:ro
+      - ./agent/prompt:/app/prompt:ro
+      - ./data:/app/data
+      - ./config.yaml:/app/config.yaml:ro
