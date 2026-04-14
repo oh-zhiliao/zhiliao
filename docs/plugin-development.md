@@ -88,9 +88,18 @@ export interface ToolPlugin {
   getCommandHandlers?(): PluginCommandHandler;
 }
 
-/** 核心暴露给插件的有限能力（如发送飞书消息） */
+/** 核心暴露给插件的有限能力 */
 export interface PluginContext {
   sendFeishuMessage(chatId: string, msgType: string, content: string): Promise<void>;
+
+  /** Simple text-in, text-out LLM call for plugin background tasks. No tool use or streaming. */
+  callLLM?(options: {
+    system: string;
+    prompt: string;
+    maxTokens?: number;   // default: 4096
+    model?: string;       // default: agent's configured model
+    timeoutMs?: number;   // default: 120000 (2 min)
+  }): Promise<string>;
 }
 
 /** 命令调用时传递给处理器的上下文 */
@@ -431,7 +440,6 @@ getCommandHandlers(): PluginCommandHandler {
 ```typescript
 async start(context: PluginContext): Promise<void> {
   // PluginContext 提供与核心交互的能力
-  // 当前支持: context.sendFeishuMessage(chatId, msgType, content)
   this.timer = setInterval(() => this.poll(context), 60000);
 }
 
@@ -442,7 +450,45 @@ async stop(): Promise<void> {
 
 - `start()` 在所有插件加载并注册后调用
 - `stop()` 在 `destroy()` 之前调用
-- `PluginContext` 提供有限的核心能力（目前仅 `sendFeishuMessage`）
+- `PluginContext` 提供的核心能力：
+  - `sendFeishuMessage(chatId, msgType, content)` — 发送飞书消息
+  - `callLLM?(options)` — 插件后台 LLM 调用（可选，详见下节）
+
+## Plugin LLM Calls (callLLM)
+
+`PluginContext.callLLM` 允许插件在后台任务中调用 LLM，无需经过 Agent loop。适用于内容生成、摘要、分类等非交互式场景。
+
+```typescript
+async start(context: PluginContext): Promise<void> {
+  // callLLM 是可选的 — 检查是否可用
+  if (!context.callLLM) {
+    console.warn("callLLM not available, generation disabled");
+    return;
+  }
+
+  const result = await context.callLLM({
+    system: "You are a technical documentation expert.",
+    prompt: "Summarize this code: ...",
+    maxTokens: 2048,     // 可选，默认 4096
+    // model: "...",      // 可选，默认使用 agent 配置的模型
+    // timeoutMs: 60000,  // 可选，默认 120000 (2 分钟)
+  });
+
+  console.log(result); // LLM 返回的纯文本
+}
+```
+
+**特性**:
+- 简单的 text-in / text-out 调用，不支持 tool use 或 streaming
+- 使用与 Agent 相同的 LLM provider（Anthropic 或 OpenAI compatible）
+- 默认使用 Agent 配置的模型，可通过 `model` 参数覆盖
+- 超时通过 `AbortSignal.timeout` 实现
+- 是可选接口（`callLLM?`），插件应检查其是否存在后再使用
+
+**使用场景举例**:
+- 知识文档自动生成（参见 [git-repos 插件](https://github.com/oh-zhiliao/git-repos)）
+- 内容摘要、分类、标签提取
+- 定时报告生成
 
 ## Cheap vs Expensive Tools
 
@@ -550,5 +596,6 @@ it("plugin tools are namespaced", () => {
 - [ ] 如有快速操作，实现 `getCheapTools()`
 - [ ] 如需清理资源，实现 `destroy()`
 - [ ] 如有后台服务，实现 `start()` / `stop()`
+- [ ] 如需后台 LLM 调用，检查 `context.callLLM` 可用性后使用
 - [ ] 如需用户命令，实现 `getCommandHandlers()`
 - [ ] 单元测试覆盖 init 失败、工具执行、错误处理
