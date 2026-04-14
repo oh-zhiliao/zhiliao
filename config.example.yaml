@@ -1,5 +1,5 @@
 # Zhiliao Configuration
-# Secrets can be inlined here (this file is gitignored) or use ${ENV_VAR} substitution.
+# This file is gitignored. Put secrets directly here — no env var substitution needed.
 
 project:
   name: "my-project"
@@ -7,7 +7,7 @@ project:
 
 feishu:
   app_id: "cli_xxx"
-  app_secret: "${FEISHU_APP_SECRET}"
+  app_secret: "your-feishu-app-secret"   # from open.feishu.cn → App Credentials
   event_mode: "websocket"
 
 llm:
@@ -15,22 +15,18 @@ llm:
     provider: "anthropic"                   # "anthropic" or "openai_compatible"
     base_url: "https://api.anthropic.com"   # required for openai_compatible
     model: "claude-sonnet-4-20250514"       # must support tool-use / function-calling
-    api_key: "${AGENT_API_KEY}"
+    api_key: "your-agent-api-key"
   memo:
     provider: "openai_compatible"
     base_url: "https://api.deepseek.com/v1"
     model: "deepseek-chat"
-    api_key: "${MEMO_API_KEY}"
+    api_key: "your-memo-api-key"
   embedding:
     provider: "openai_compatible"
-    base_url: "http://127.0.0.1:11434/v1"
+    base_url: "http://127.0.0.1:11434/v1"  # local Ollama
     model: "qwen3-embedding:0.6b"
 
 # Memo knowledge tools (builtin, disabled by setting memo.enabled: false)
 memo:
   enabled: true
   url: "http://127.0.0.1:8090"              # memo service URL
-  # data_dir defaults to <data_dir>/memo
-
-# git and admins settings have moved to plugin configs.
-# See git-repos/config.example.yaml.

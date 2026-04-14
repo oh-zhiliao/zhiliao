@@ -1,16 +1,16 @@
-# Dev override: use pre-built base image + mount local dist/prompt.
-# Prereqs: build base image once, then compile TS locally before each restart.
+# Dev override: use build image + mount source, tsx runs TS directly.
+# Build image only needs rebuilding when package.json changes.
 #
-#   docker build -f agent/Dockerfile.base -t zhiliao-agent-base agent/
-#   cd agent && npx tsc
-#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d agent
+#   bash deploy.sh           # builds build image if needed, restarts agent
+#   bash deploy.sh --full    # full release image build (production/k8s)
 #
 services:
   agent:
     build: !reset null
-    image: zhiliao-agent-base
+    image: zhiliao-build
     volumes:
-      - ./agent/dist:/app/dist:ro
+      - ./agent/src:/app/src:ro
       - ./agent/prompt:/app/prompt:ro
       - ./data:/app/data
       - ./config.yaml:/app/config.yaml:ro
+      - ./plugins:/app/plugins

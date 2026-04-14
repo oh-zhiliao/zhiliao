@@ -1,32 +1,33 @@
-# Base image: deps only, source mounted at runtime.
+# Build image: all deps installed, no source code.
 # Rebuild only when package.json changes.
 #
+# Used for:
+#   - Quick deploy: mount source at runtime, tsx runs TS directly
+#   - Full deploy: base layer for Dockerfile (compile + prune → release image)
+#
 # Build:
-#   docker build -f Dockerfile.base -t zhiliao-agent-base .
-#   docker build -f Dockerfile.base --build-arg USE_CN_MIRROR=true -t zhiliao-agent-base .
-ARG BASE_IMAGE=node:20-slim
-FROM ${BASE_IMAGE}
+#   docker build -f Dockerfile.base -t zhiliao-build .
+ARG BASE_IMAGE=node:22-slim
 
+FROM ${BASE_IMAGE}
 ARG USE_CN_MIRROR=false
 RUN if [ "$USE_CN_MIRROR" = "true" ]; then \
       sed -i 's|deb.debian.org|mirrors.aliyun.com|g' /etc/apt/sources.list.d/debian.sources; \
-    fi
-
-RUN apt-get update && apt-get install -y --no-install-recommends git openssh-client python3 make g++ && rm -rf /var/lib/apt/lists/* \
+    fi \
+    && apt-get update && apt-get install -y --no-install-recommends \
+       git openssh-client python3 make g++ \
+    && rm -rf /var/lib/apt/lists/* \
     && git config --global safe.directory '*'
 
 WORKDIR /app
-
 COPY package.json package-lock.json ./
 RUN if [ "$USE_CN_MIRROR" = "true" ]; then \
       npm ci --registry=https://registry.npmmirror.com; \
     else \
       npm ci; \
-    fi \
-    && npm prune --production
+    fi
 
 COPY entrypoint.sh /app/entrypoint.sh
 
-# No COPY src, no tsc build — source is mounted at runtime, tsx handles TS
 ENTRYPOINT ["/app/entrypoint.sh"]
 CMD ["node", "--import", "tsx/esm", "src/index.ts", "/app/config.yaml"]

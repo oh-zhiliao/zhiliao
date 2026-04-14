@@ -1,30 +1,27 @@
-ARG BASE_IMAGE=node:20-slim
-FROM ${BASE_IMAGE}
+# Release image: compiled JS, production deps only, no build tools.
+# Requires zhiliao-build image (built from Dockerfile.base).
+#
+# Build:
+#   docker build -t zhiliao-release:latest .
+ARG BUILD_IMAGE=zhiliao-build
+ARG BASE_IMAGE=node:22-slim
 
-ARG USE_CN_MIRROR=false
-RUN if [ "$USE_CN_MIRROR" = "true" ]; then \
-      sed -i 's|deb.debian.org|mirrors.aliyun.com|g' /etc/apt/sources.list.d/debian.sources; \
-    fi
-
-RUN apt-get update && apt-get install -y --no-install-recommends git openssh-client python3 make g++ && rm -rf /var/lib/apt/lists/* \
-    && git config --global safe.directory '*'
-
-WORKDIR /app
-
-COPY package.json package-lock.json ./
-RUN if [ "$USE_CN_MIRROR" = "true" ]; then \
-      npm ci --registry=https://registry.npmmirror.com; \
-    else \
-      npm ci; \
-    fi
-
+# --- Stage 1: compile TS ---
+FROM ${BUILD_IMAGE} AS compiler
 COPY tsconfig.json ./
 COPY src/ ./src/
+RUN npx tsc && npm prune --production
+
+# --- Stage 2: slim runtime (no build tools) ---
+FROM ${BASE_IMAGE}
+RUN apt-get update && apt-get install -y --no-install-recommends git openssh-client && rm -rf /var/lib/apt/lists/* \
+    && git config --global safe.directory '*'
+WORKDIR /app
+COPY --from=compiler /app/node_modules ./node_modules
+COPY --from=compiler /app/dist ./dist
+COPY package.json ./
 COPY prompt/ ./prompt/
-
-RUN npm run build && npm prune --production
-
-COPY entrypoint.sh /app/entrypoint.sh
+COPY entrypoint.sh ./entrypoint.sh
 
 ENTRYPOINT ["/app/entrypoint.sh"]
 CMD ["node", "--import", "tsx/esm", "dist/src/index.js", "/app/config.yaml"]

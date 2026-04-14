@@ -5,14 +5,14 @@ services:
       network: host
       args:
         USE_CN_MIRROR: ${USE_CN_MIRROR:-false}
-        BASE_IMAGE: ${USE_CN_MIRROR:+m.daocloud.io/docker.io/library/node:20-slim}
+        BASE_IMAGE: ${USE_CN_MIRROR:+m.daocloud.io/docker.io/library/node:22-slim}
     network_mode: host
     volumes:
       - ./data:/app/data
       - ./config.yaml:/app/config.yaml:ro
-      - ../git-repos:/app/plugins/git-repos
+      - ./plugins:/app/plugins
     environment:
-      - MEMO_URL=http://127.0.0.1:8090
+      - USE_CN_MIRROR=${USE_CN_MIRROR:-false}
       - GIT_SSH_COMMAND=ssh -i /app/data/deploy_key -o UserKnownHostsFile=/app/data/ssh/known_hosts -o StrictHostKeyChecking=yes
     depends_on:
       rag:
