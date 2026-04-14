@@ -12,6 +12,7 @@ interface MemoSearchResult {
   summary: string;
   entry_type: string;
   score: number;
+  created_at?: string;
 }
 
 interface MemoSearchResponse {
@@ -110,7 +111,10 @@ export class MemoToolsPlugin implements ToolPlugin {
       const data = (await resp.json()) as MemoSearchResponse;
       if (data.results.length === 0) return "No relevant knowledge found.";
       return data.results
-        .map((r) => `[${r.entry_type}] ${r.source_file}: ${r.summary}\n${r.content}`)
+        .map((r) => {
+          const time = r.created_at ? ` (${r.created_at.slice(0, 10)})` : "";
+          return `[${r.entry_type}${time}] ${r.source_file}: ${r.summary}\n${r.content}`;
+        })
         .join("\n\n---\n\n");
     } catch (e: any) {
       if (e.name === "AbortError") return "Memory search timed out.";

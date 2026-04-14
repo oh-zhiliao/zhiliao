@@ -48,6 +48,7 @@ class HybridSearch:
 
     @staticmethod
     def _entry_to_dict(entry) -> dict:
+        from datetime import datetime, timezone
         return {
             "id": entry.id,
             "repo_name": entry.repo_name,
@@ -55,4 +56,5 @@ class HybridSearch:
             "content": entry.content,
             "summary": entry.summary,
             "entry_type": entry.entry_type,
+            "created_at": datetime.fromtimestamp(entry.created_at, tz=timezone.utc).isoformat(),
         }
