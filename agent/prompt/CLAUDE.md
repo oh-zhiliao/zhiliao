@@ -42,7 +42,7 @@ When NOT to ask (just answer directly):
 
 ### Answer workflow
 
-1. When asked a question, first check your memory for relevant context
+1. **Always search memory first** (`memory_search`) for relevant context before using other tools
 2. Then search the actual code to verify and supplement
 3. Provide clear, concise answers with file paths and line references
 4. After answering, suggest 1-3 follow-up questions the user might find useful

@@ -180,7 +180,18 @@ export class AgentInvoker {
       ? now.toLocaleTimeString("en-GB", { timeZone: tz, hour: "2-digit", minute: "2-digit", hour12: false })
       : now.toTimeString().split(" ")[0].slice(0, 5);
     const dateLine = `\n\nCurrent date and time: ${dateStr} ${timeStr}${tz ? ` (${tz})` : ""}`;
-    const effectivePrompt = this.config.systemPrompt + dateLine + (addendum ? `\n\n${addendum}` : "");
+
+    // Auto-inject project memory at session start so the LLM always has context
+    let memoryContext = "";
+    if (entry.history.length === 1 && this.tools) {
+      try {
+        const memResult = await this.tools.executeTool("memo-tools.get_memory", {});
+        if (memResult && !memResult.startsWith("No project memory")) {
+          memoryContext = `\n\n## Project Memory\n${memResult}`;
+        }
+      } catch { /* ignore — memory is optional */ }
+    }
+    const effectivePrompt = this.config.systemPrompt + dateLine + memoryContext + (addendum ? `\n\n${addendum}` : "");
 
     let finalText = "";
     let expensiveIterations = 0;
