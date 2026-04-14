@@ -1,3 +1,4 @@
+import hashlib
 import logging
 import time
 from contextlib import asynccontextmanager
@@ -13,7 +14,7 @@ from decay import DecayManager
 from indexer import CommitIndexer
 from llm_client import LLMClient
 from search import HybridSearch
-from store import KnowledgeStore
+from store import KnowledgeStore, KnowledgeEntry
 
 _start_time = time.time()
 
@@ -173,7 +174,6 @@ async def index_decay(req: IndexDecayRequest):
 @app.post("/save", response_model=SaveResponse)
 async def save(req: SaveRequest):
     _require_initialized()
-    import hashlib
 
     # Distill content using cheap LLM
     distilled = await state.llm.summarize(
