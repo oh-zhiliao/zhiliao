@@ -223,6 +223,9 @@ export class FeishuAdapter {
       if (!sentThinking) {
         sentThinking = true;
         this.replySafe(ctx, "正在查阅资料...");
+        if (ctx.debugMode) {
+          this.replySafe(ctx, `[debug] session=${sessionKey}`);
+        }
       }
       if (ctx.debugMode) {
         this.replySafe(ctx, `[debug] ${info}`);
