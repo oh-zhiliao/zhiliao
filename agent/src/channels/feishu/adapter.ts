@@ -69,17 +69,18 @@ export class FeishuAdapter {
       return; // Non-text message, ignore
     }
 
-    // Check /debug prefix
-    const debugMode = text.trimStart().startsWith("/debug");
-    if (debugMode) {
-      text = text.trimStart().slice(6).trim();
-    }
-
-    // Strip @mention placeholders from text
+    // Strip @mention placeholders from text (must happen before /debug check,
+    // because in group chat the mention key precedes the user's text)
     if (msg.mentions) {
       for (const mention of msg.mentions) {
         text = text.replace(mention.key, "").trim();
       }
+    }
+
+    // Check /debug prefix (after mention stripping)
+    const debugMode = text.trimStart().startsWith("/debug");
+    if (debugMode) {
+      text = text.trimStart().slice(6).trim();
     }
 
     if (!text) return; // Empty after stripping
