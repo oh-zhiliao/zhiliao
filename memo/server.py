@@ -105,6 +105,18 @@ class IndexDecayResponse(BaseModel):
     archived_count: int
 
 
+class SaveRequest(BaseModel):
+    repo_name: str
+    source: str  # e.g. "chat:group_id" or "chat:user_id"
+    content: str
+    summary: str
+
+
+class SaveResponse(BaseModel):
+    id: str
+    status: str
+
+
 class SearchRequest(BaseModel):
     query: str
     repo_name: Optional[str] = None
@@ -156,6 +168,32 @@ async def index_decay(req: IndexDecayRequest):
         stale_count=result["stale_count"],
         archived_count=result["archived_count"],
     )
+
+
+@app.post("/save", response_model=SaveResponse)
+async def save(req: SaveRequest):
+    _require_initialized()
+    import hashlib
+
+    # Distill content using cheap LLM
+    distilled = await state.llm.summarize(
+        f"Distill the following into a concise knowledge entry (1-3 sentences, plain language, keep only the core technical fact):\n\n{req.content}",
+        max_tokens=256,
+    )
+
+    entry_id = f"{req.repo_name}:qa:{hashlib.sha256(req.content.encode()).hexdigest()[:12]}"
+    embedding = await state.llm.embed(distilled)
+    entry = KnowledgeEntry(
+        id=entry_id,
+        repo_name=req.repo_name,
+        source_file=req.source,
+        content=distilled,
+        summary=req.summary,
+        embedding=embedding,
+        entry_type="qa",
+    )
+    state.store.upsert(entry)
+    return SaveResponse(id=entry_id, status="saved")
 
 
 @app.post("/search", response_model=SearchResponse)

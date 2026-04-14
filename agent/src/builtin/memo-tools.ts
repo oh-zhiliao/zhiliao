@@ -53,6 +53,19 @@ export class MemoToolsPlugin implements ToolPlugin {
         },
       },
       {
+        name: "memory_save",
+        description: "Save a verified knowledge entry to the project knowledge base. Use sparingly — only for confirmed facts, corrected errors, or hard-won conclusions. Content will be auto-distilled before storage.",
+        input_schema: {
+          type: "object",
+          properties: {
+            repo_name: { type: "string", description: "Which repo this knowledge relates to" },
+            summary: { type: "string", description: "One-line summary (under 80 chars)" },
+            content: { type: "string", description: "The knowledge to save (under 500 chars, factual, no raw tool output)" },
+          },
+          required: ["repo_name", "summary", "content"],
+        },
+      },
+      {
         name: "get_memory",
         description: "Get the project-level overview (MEMORY.md) — a summary of what the project is about and key knowledge",
         input_schema: { type: "object", properties: {} },
@@ -66,6 +79,7 @@ export class MemoToolsPlugin implements ToolPlugin {
 
   summarizeInput(name: string, input: Record<string, any>): string {
     if (name === "memory_search") return `"${input.query}"`;
+    if (name === "memory_save") return `${input.repo_name}: "${input.summary}"`;
     return "";
   }
 
@@ -73,6 +87,7 @@ export class MemoToolsPlugin implements ToolPlugin {
     try {
       switch (name) {
         case "memory_search": return await this.memorySearch(input.query);
+        case "memory_save": return await this.memorySave(input.repo_name, input.summary, input.content);
         case "get_memory": return this.getMemory();
         default: return `Unknown tool: ${name}`;
       }
@@ -100,6 +115,30 @@ export class MemoToolsPlugin implements ToolPlugin {
     } catch (e: any) {
       if (e.name === "AbortError") return "Memory search timed out.";
       return "Memory search unavailable.";
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  private async memorySave(repoName: string, summary: string, content: string): Promise<string> {
+    if (content.length > 500) {
+      content = content.slice(0, 500);
+    }
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT);
+    try {
+      const resp = await fetch(`${this.memoUrl}/save`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ repo_name: repoName, source: "chat", summary, content }),
+        signal: controller.signal,
+      });
+      if (!resp.ok) return `Save failed: ${resp.status}`;
+      const data = await resp.json() as { id: string; status: string };
+      return `Saved: ${data.id}`;
+    } catch (e: any) {
+      if (e.name === "AbortError") return "Save timed out.";
+      return `Save failed: ${e.message}`;
     } finally {
       clearTimeout(timeout);
     }
