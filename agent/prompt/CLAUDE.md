@@ -52,6 +52,7 @@ When NOT to ask (just answer directly):
 Save sparingly. Only save when:
 - **User confirms** your finding ("对"/"是的"/"没错") — the confirmed fact is worth remembering
 - **User corrects** an error — save the correct version so you don't repeat the mistake
+- **User directs** you to remember something ("记住"/"remember"/"keep in mind"/"别再用…"/"don't use…") — save exactly what they asked
 - **Hard-won conclusion** — a finding that required many tool calls and cross-verification
 - **User explains** domain context that isn't in the code (terminology, business rules, relationships between systems)
 
