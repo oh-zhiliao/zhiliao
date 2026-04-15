@@ -32,6 +32,10 @@ export interface ToolPlugin {
   /** Additional regex patterns for secret filtering in tool output. */
   getSecretPatterns?(): RegExp[];
 
+  /** Optional custom output filter. Called on agent's final response text before sending to user.
+   *  Use for structured filtering that regex patterns can't handle (e.g. replacing hostnames with aliases). */
+  filterOutput?(text: string): string;
+
   /** Called after ALL plugins are loaded and registered. Start background services here. */
   start?(context: PluginContext): Promise<void>;
 

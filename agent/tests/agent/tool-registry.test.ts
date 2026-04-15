@@ -223,3 +223,28 @@ describe("ToolRegistry lifecycle", () => {
     expect(p1.stop).toHaveBeenCalled();
   });
 });
+
+describe("ToolRegistry filterOutput", () => {
+  it("filterOutput chains all plugin filters", () => {
+    const plugin1 = makePlugin("p1", ["tool1"]);
+    plugin1.filterOutput = (text: string) => text.replace(/SECRET1/g, "[FILTERED]");
+    const plugin2 = makePlugin("p2", ["tool2"]);
+    plugin2.filterOutput = (text: string) => text.replace(/SECRET2/g, "[FILTERED]");
+    const registry = new ToolRegistry();
+    registry.register(plugin1);
+    registry.register(plugin2);
+
+    const result = registry.filterOutput("contains SECRET1 and SECRET2 here");
+    expect(result).toBe("contains [FILTERED] and [FILTERED] here");
+  });
+
+  it("filterOutput works with no plugins having filter", () => {
+    const plugin = makePlugin("p1", ["tool1"]);
+    // No filterOutput defined
+    const registry = new ToolRegistry();
+    registry.register(plugin);
+
+    const result = registry.filterOutput("unchanged text");
+    expect(result).toBe("unchanged text");
+  });
+});

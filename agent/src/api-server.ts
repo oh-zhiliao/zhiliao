@@ -55,7 +55,9 @@ export function createApiServer(deps: ApiServerDeps): express.Application {
       }
 
       const response = await deps.agent.ask(parsed.text, session_key);
-      res.json({ type: "question", response: filterSecrets(response.text, deps.secretPatterns), session_expired: response.sessionExpired });
+      const secretFiltered = filterSecrets(response.text, deps.secretPatterns);
+      const filtered = deps.toolRegistry.filterOutput(secretFiltered);
+      res.json({ type: "question", response: filtered, session_expired: response.sessionExpired });
     } catch (e: any) {
       console.error("API error:", e);
       res.status(500).json({ error: "Internal server error" });

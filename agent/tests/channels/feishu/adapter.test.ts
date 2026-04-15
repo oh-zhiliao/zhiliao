@@ -38,6 +38,7 @@ describe("FeishuAdapter", () => {
 
     mockToolRegistry = {
       handleCommand: vi.fn().mockResolvedValue(null),
+      filterOutput: vi.fn((text: string) => text),
     };
 
     const deps: FeishuAdapterDeps = {
@@ -354,6 +355,32 @@ describe("FeishuAdapter", () => {
 
     expect(sentMessages.length).toBe(1);
     expect(mockAgent.ask).toHaveBeenCalled();
+  });
+
+  it("applies toolRegistry.filterOutput to agent response", async () => {
+    mockAgent.ask.mockResolvedValueOnce({
+      text: "The server is at internal.host.example.com",
+      sessionId: "s1",
+    });
+    mockToolRegistry.filterOutput = vi.fn((text: string) =>
+      text.replace(/internal\.host\.example\.com/g, "***")
+    );
+
+    await adapter.handleMessage({
+      sender: { sender_id: { open_id: "ou_user1" }, sender_type: "user" },
+      message: {
+        message_id: "om_filter1",
+        chat_id: "oc_dm1",
+        chat_type: "p2p",
+        message_type: "text",
+        content: JSON.stringify({ text: "where is the server?" }),
+      },
+    } as any);
+
+    expect(sentMessages.length).toBe(1);
+    expect(sentMessages[0].content).toContain("***");
+    expect(sentMessages[0].content).not.toContain("internal.host.example.com");
+    expect(mockToolRegistry.filterOutput).toHaveBeenCalled();
   });
 
   it("handles /new session command in DM", async () => {

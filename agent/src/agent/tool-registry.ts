@@ -85,6 +85,16 @@ export class ToolRegistry {
     return patterns;
   }
 
+  filterOutput(text: string): string {
+    let result = text;
+    for (const plugin of this.plugins.values()) {
+      if (plugin.filterOutput) {
+        result = plugin.filterOutput(result);
+      }
+    }
+    return result;
+  }
+
   async handleCommand(
     pluginName: string,
     subcommand: string,

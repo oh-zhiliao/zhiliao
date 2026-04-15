@@ -245,7 +245,8 @@ export class FeishuAdapter {
 
     try {
       const response = await this.deps.agent.ask(question, sessionKey, onProgress);
-      const filtered = filterSecrets(response.text, this.deps.secretPatterns);
+      const secretFiltered = filterSecrets(response.text, this.deps.secretPatterns);
+      const filtered = this.deps.toolRegistry.filterOutput(secretFiltered);
       console.log(`[${ctx.logId}] agent reply len=${response.text.length} filtered=${filtered !== response.text}`);
       await this.reply(ctx, filtered);
     } catch (e: any) {
