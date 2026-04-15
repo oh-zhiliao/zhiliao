@@ -32,11 +32,7 @@ class DecayManager:
         # Refresh verification time for existing files
         if refresh_ids:
             now = time.time()
-            for entry_id in refresh_ids:
-                entry = self.store.get(entry_id)
-                if entry:
-                    entry.last_verified_at = now
-                    self.store.upsert(entry)
+            self.store.refresh_verified(refresh_ids, now)
 
         # Archive stale entries older than threshold
         self.store.archive_old_stale(self.decay_after_days)

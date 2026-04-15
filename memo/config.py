@@ -10,7 +10,9 @@ class MemoConfig:
     embedding_base_url: str
     embedding_model: str
     data_dir: str
+    embedding_api_key: str = ""
     decay_after_days: int = 30
+    llm_timeout: float = 60.0
 
 
 def _load_yaml_config(path: str = "/app/config.yaml") -> dict:
@@ -36,6 +38,7 @@ def load_config() -> MemoConfig:
 
     llm_base = os.environ.get("MEMO_LLM_BASE_URL", "") or memo_cfg.get("base_url", "https://api.deepseek.com/v1")
     emb_base = os.environ.get("MEMO_EMBEDDING_BASE_URL", "") or emb_cfg.get("base_url", llm_base)
+    embedding_api_key = os.environ.get("MEMO_EMBEDDING_API_KEY", "") or emb_cfg.get("api_key", "") or api_key
 
     return MemoConfig(
         llm_base_url=llm_base,
@@ -44,5 +47,7 @@ def load_config() -> MemoConfig:
         embedding_base_url=emb_base,
         embedding_model=os.environ.get("MEMO_EMBEDDING_MODEL", "") or emb_cfg.get("model", "deepseek-embedding"),
         data_dir=os.environ.get("MEMO_DATA_DIR", "/app/data"),
+        embedding_api_key=embedding_api_key,
         decay_after_days=int(os.environ.get("MEMO_DECAY_AFTER_DAYS", "30")),
+        llm_timeout=float(os.environ.get("MEMO_LLM_TIMEOUT", "60")),
     )

@@ -63,3 +63,44 @@ async def test_hybrid_search_empty_query(store, mock_llm):
     search = HybridSearch(store=store, llm=mock_llm)
     results = await search.search("", limit=5)
     assert isinstance(results, list)
+
+
+@pytest.mark.asyncio
+async def test_hybrid_search_with_repo_filter(store, mock_llm):
+    # Seed an entry in a different repo
+    store.upsert(KnowledgeEntry(
+        id="other1", repo_name="other-repo", source_file="src/other.ts",
+        content="Authentication module handles JWT tokens",
+        summary="other auth",
+        embedding=np.array([1.0, 0.0, 0.0], dtype=np.float32),
+        entry_type="code",
+    ))
+    search = HybridSearch(store=store, llm=mock_llm)
+    results = await search.search("JWT authentication", limit=10, repo_name="proj")
+
+    assert len(results) >= 1
+    for r in results:
+        assert r["repo_name"] == "proj"
+
+
+@pytest.mark.asyncio
+async def test_hybrid_search_fts_only(store, mock_llm):
+    # Mock vector_search to return empty list so only FTS contributes
+    from unittest.mock import patch
+    search = HybridSearch(store=store, llm=mock_llm)
+    with patch.object(store, "vector_search", return_value=[]):
+        results = await search.search("JWT authentication", limit=5)
+
+    assert len(results) >= 1
+    assert results[0]["id"] == "k0"
+
+
+@pytest.mark.asyncio
+async def test_hybrid_search_result_fields(store, mock_llm):
+    search = HybridSearch(store=store, llm=mock_llm)
+    results = await search.search("JWT authentication", limit=3)
+
+    assert len(results) >= 1
+    expected_keys = {"id", "repo_name", "source_file", "content", "summary", "entry_type", "created_at", "score"}
+    for r in results:
+        assert set(r.keys()) == expected_keys

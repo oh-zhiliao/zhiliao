@@ -57,27 +57,25 @@ class KnowledgeStore:
 
     def upsert(self, entry: KnowledgeEntry):
         emb_blob = entry.embedding.tobytes()
-        self.db.execute("""
-            INSERT INTO knowledge (id, repo_name, source_file, content, summary,
-                                   embedding, entry_type, status, last_verified_at, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(id) DO UPDATE SET
-                content=excluded.content,
-                summary=excluded.summary,
-                embedding=excluded.embedding,
-                status=excluded.status,
-                last_verified_at=excluded.last_verified_at
-        """, (entry.id, entry.repo_name, entry.source_file, entry.content,
-              entry.summary, emb_blob, entry.entry_type, entry.status,
-              entry.last_verified_at, entry.created_at))
-
-        # Sync FTS — delete old, insert new
-        self.db.execute("DELETE FROM knowledge_fts WHERE id = ?", (entry.id,))
-        self.db.execute(
-            "INSERT INTO knowledge_fts (id, content, summary) VALUES (?, ?, ?)",
-            (entry.id, entry.content, entry.summary),
-        )
-        self.db.commit()
+        with self.db:  # single transaction
+            self.db.execute("""
+                INSERT INTO knowledge (id, repo_name, source_file, content, summary,
+                                       embedding, entry_type, status, last_verified_at, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    content=excluded.content,
+                    summary=excluded.summary,
+                    embedding=excluded.embedding,
+                    status=excluded.status,
+                    last_verified_at=excluded.last_verified_at
+            """, (entry.id, entry.repo_name, entry.source_file, entry.content,
+                  entry.summary, emb_blob, entry.entry_type, entry.status,
+                  entry.last_verified_at, entry.created_at))
+            self.db.execute("DELETE FROM knowledge_fts WHERE id = ?", (entry.id,))
+            self.db.execute(
+                "INSERT INTO knowledge_fts (id, content, summary) VALUES (?, ?, ?)",
+                (entry.id, entry.content, entry.summary),
+            )
 
     def get(self, entry_id: str) -> Optional[KnowledgeEntry]:
         row = self.db.execute(
@@ -111,15 +109,15 @@ class KnowledgeStore:
         return [self._row_to_entry(r) for r in rows]
 
     def vector_search(self, query_vec: np.ndarray, limit: int = 10, repo_name: str = None) -> list[KnowledgeEntry]:
-        # Load all active embeddings and compute cosine similarity
         where_clause = "WHERE status = 'active'"
         params: list = []
         if repo_name:
             where_clause += " AND repo_name = ?"
             params.append(repo_name)
 
+        # First pass: fetch only id+embedding for scoring
         rows = self.db.execute(
-            f"SELECT * FROM knowledge {where_clause}", params
+            f"SELECT id, embedding FROM knowledge {where_clause}", params
         ).fetchall()
 
         if not rows:
@@ -127,12 +125,27 @@ class KnowledgeStore:
 
         scored = []
         for row in rows:
-            entry = self._row_to_entry(row)
-            sim = self._cosine_similarity(query_vec, entry.embedding)
-            scored.append((sim, entry))
+            entry_id = row[0]
+            embedding = np.frombuffer(row[1], dtype=np.float32)
+            sim = self._cosine_similarity(query_vec, embedding)
+            scored.append((sim, entry_id))
 
         scored.sort(key=lambda x: x[0], reverse=True)
-        return [entry for _, entry in scored[:limit]]
+        top_ids = [entry_id for _, entry_id in scored[:limit]]
+
+        if not top_ids:
+            return []
+
+        # Second pass: fetch full entries for top results only
+        placeholders = ",".join("?" * len(top_ids))
+        full_rows = self.db.execute(
+            f"SELECT * FROM knowledge WHERE id IN ({placeholders})", top_ids
+        ).fetchall()
+
+        # Restore score-based ordering
+        entries = [self._row_to_entry(r) for r in full_rows]
+        entry_map = {e.id: e for e in entries}
+        return [entry_map[eid] for eid in top_ids if eid in entry_map]
 
     def list_by_repo(self, repo_name: str) -> list[KnowledgeEntry]:
         rows = self.db.execute(
@@ -148,6 +161,16 @@ class KnowledgeStore:
         self.db.execute(
             f"UPDATE knowledge SET status = 'stale' WHERE id IN ({placeholders})",
             entry_ids,
+        )
+        self.db.commit()
+
+    def refresh_verified(self, entry_ids: list[str], now: float):
+        if not entry_ids:
+            return
+        placeholders = ",".join("?" * len(entry_ids))
+        self.db.execute(
+            f"UPDATE knowledge SET last_verified_at = ? WHERE id IN ({placeholders})",
+            [now] + entry_ids,
         )
         self.db.commit()
 
