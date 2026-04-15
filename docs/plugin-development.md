@@ -78,6 +78,9 @@ export interface ToolPlugin {
   /** 额外的 secret 过滤正则，防止敏感信息泄露 */
   getSecretPatterns?(): RegExp[];
 
+  /** 自定义输出过滤器。在 secret 过滤后调用，用于 regex 无法处理的结构化过滤（如主机名替换为别名） */
+  filterOutput?(text: string): string;
+
   /** 所有插件加载完毕后调用，启动后台服务（如定时轮询）。接收 PluginContext 用于与核心交互 */
   start?(context: PluginContext): Promise<void>;
 
@@ -385,6 +388,25 @@ getSecretPatterns(): RegExp[] {
 
 这些 pattern 会被合并到全局 secret filter，防止 Agent 回复中泄露敏感信息。
 
+## Output Filtering
+
+`filterOutput()` 用于 regex 无法处理的结构化输出过滤。在 `filterSecrets()` 之后调用，所有插件的 filter 链式执行。
+
+**适用场景**: 主机名替换为别名、连接信息脱敏、格式规范化等。
+
+```typescript
+filterOutput(text: string): string {
+  // Replace internal hostnames with aliases
+  return text
+    .replace(/10\.0\.1\.42/g, "db-primary")
+    .replace(/10\.0\.1\.43/g, "db-replica");
+}
+```
+
+**处理流程**: Agent 回复 → `filterSecrets()` (regex) → `toolRegistry.filterOutput()` (插件链) → 发送给用户
+
+**注意**: 与 `getSecretPatterns()` 的区别 — secret patterns 用 regex 替换为 `[REDACTED]`，`filterOutput` 可以做任意文本变换（替换、重写、删除等）。
+
 ## System Prompt Addendum
 
 `getSystemPromptAddendum()` 返回的文本会追加到 Agent 的 system prompt。用于：
@@ -598,4 +620,5 @@ it("plugin tools are namespaced", () => {
 - [ ] 如有后台服务，实现 `start()` / `stop()`
 - [ ] 如需后台 LLM 调用，检查 `context.callLLM` 可用性后使用
 - [ ] 如需用户命令，实现 `getCommandHandlers()`
+- [ ] 如需结构化输出过滤（超出 regex 能力），实现 `filterOutput()`
 - [ ] 单元测试覆盖 init 失败、工具执行、错误处理

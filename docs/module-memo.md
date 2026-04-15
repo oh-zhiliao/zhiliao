@@ -32,6 +32,8 @@ LLMClient  KnowledgeStore
 | `MEMO_LLM_MODEL` | deepseek-chat | 摘要模型 |
 | `MEMO_EMBEDDING_BASE_URL` | 同 LLM | Embedding 服务地址 |
 | `MEMO_EMBEDDING_MODEL` | deepseek-embedding | Embedding 模型 |
+| `MEMO_EMBEDDING_API_KEY` | 同 LLM key | Embedding API 密钥（可独立配置） |
+| `MEMO_LLM_TIMEOUT` | 60.0 | LLM/Embedding API 超时（秒） |
 | `MEMO_DATA_DIR` | /app/data | 数据目录 |
 | `MEMO_DECAY_AFTER_DAYS` | 30 | 衰减天数 |
 
@@ -41,7 +43,9 @@ OpenAI 兼容 API 客户端，支持摘要生成和 embedding。
 
 - `summarize(prompt, max_tokens=512)` — temperature=0.3
 - `embed(text)` / `embed_batch(texts)` — 返回 numpy float32 数组
-- 两个独立 AsyncOpenAI 实例（LLM + embedding 可用不同 provider）
+- 两个独立 AsyncOpenAI 实例（LLM + embedding 可用不同 provider 和 API key）
+- **超时**: 可配置（默认 60s read / 10s connect），通过 `MEMO_LLM_TIMEOUT` 设置
+- **重试**: `_retry_call()` 对瞬态错误（APITimeoutError、APIConnectionError、429、5xx）指数退避重试，最多 3 次
 
 ### store.py — KnowledgeStore
 
@@ -57,6 +61,12 @@ knowledge_fts (id, content, summary)  -- FTS5 virtual table
 **Entry 状态流转**: `active → stale → archived → deleted`
 
 **Entry 类型**: `commit`（提交记录）, `code`（代码文件）, `qa`（问答记录）
+
+**事务性**: `upsert()` 在单个事务内完成 INSERT OR REPLACE + FTS5 同步，保证一致性
+
+**批量操作**: `refresh_verified(entry_ids, now)` 单条 SQL 批量刷新 `last_verified_at`，替代 N+1 逐条更新
+
+**并发**: WAL journal 模式，支持写入时并发读取
 
 ### indexer.py — CommitIndexer
 

@@ -79,10 +79,11 @@ All agent tools are provided by plugins. Core has no tool implementations.
 - **Commands**: `getCommandHandlers()` — user-facing `/{plugin} {subcommand}` commands
 - **Background services**: `start(context)` / `stop()` — e.g. git tracker, scanner
 - **Secret filtering**: `getSecretPatterns()` — regex patterns merged into global filter
+- **Output filtering**: `filterOutput()` — custom structured filtering of agent response text, chained across all plugins via `ToolRegistry.filterOutput()` (called after `filterSecrets()`)
 - **System prompt**: `getSystemPromptAddendum()` — extra instructions appended to agent prompt
 - **Cheap tools**: `getCheapTools()` — fast/local tools that don't count against expensive limit
 
-**Plugin isolation**: Plugins receive only their own config + a `PluginContext` with limited core capabilities (currently: `sendFeishuMessage`).
+**Plugin isolation**: Plugins receive only their own config + a `PluginContext` with limited core capabilities (currently: `sendFeishuMessage`, `callLLM`).
 
 See [Plugin Development Guide](plugin-development.md) for how to build new plugins.
 

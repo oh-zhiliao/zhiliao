@@ -100,7 +100,7 @@ Each plugin is a self-contained folder: `config.yaml` + `src/index.ts` + optiona
 
 | Plugin | Repo | Tools | Background Services | Commands |
 |--------|------|-------|-------------------|----------|
-| **git-repos** | [oh-zhiliao/git-repos](https://github.com/oh-zhiliao/git-repos) | 6 (list_repos, file_read, search, log, diff, blame, get_repo_knowledge) | Tracker, Scanner, Notifier | `/git-repos list`, `/git-repos status` |
+| **git-repos** | [oh-zhiliao/git-repos](https://github.com/oh-zhiliao/git-repos) | 7 (list_repos, file_read, search, log, diff, blame, get_repo_knowledge) | Tracker, Scanner, Notifier | `/git-repos list`, `/git-repos status` |
 | **cls-query** | [oh-zhiliao/cls-query](https://github.com/oh-zhiliao/cls-query) | 2 | — | — |
 | **mysql-query** | [oh-zhiliao/mysql-query](https://github.com/oh-zhiliao/mysql-query) | 2 | — | — |
 
@@ -116,4 +116,5 @@ Each plugin is a self-contained folder: `config.yaml` + `src/index.ts` + optiona
 - **Commands**: User-facing `/{plugin} {subcommand}` commands routed via `ToolRegistry.handleCommand()`
 - **Background services**: Started via `plugin.start(context)`, stopped via `plugin.stop()`
 - **Secret filtering**: Plugins provide `getSecretPatterns()` merged into global filter
+- **Output filtering**: Plugins provide optional `filterOutput()` for structured post-processing (e.g. hostname aliasing), chained after secret filtering
 - **System prompt**: Plugins provide `getSystemPromptAddendum()` appended to agent prompt

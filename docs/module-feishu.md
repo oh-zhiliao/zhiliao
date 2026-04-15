@@ -50,7 +50,7 @@
 - **logId 追踪**: 每条消息生成 `genLogId()`，贯穿整个处理链路
 - **Debug 模式**: `/debug` 前缀，返回 tool call 详情
 - **进度回调**: 仅在 agent 首次调用 tool 时发送"正在查阅资料..."
-- **Secret 过滤**: agent 回复经过 `filterSecrets()` 处理
+- **输出过滤**: agent 回复经过 `filterSecrets()` → `toolRegistry.filterOutput()` 两层过滤（先 regex secret 脱敏，再插件自定义结构化过滤）
 
 ## thread-mapper.ts
 
