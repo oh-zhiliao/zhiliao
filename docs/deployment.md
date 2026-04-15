@@ -48,12 +48,20 @@ Components:
 
 ## Prerequisites
 
-- Docker & Docker Compose
+**Common:**
 - A Feishu (Lark) bot application with WebSocket event subscription enabled
 - An LLM API key for agent Q&A (Anthropic Claude, or any OpenAI-compatible API with tool-use support: Doubao, GLM, DeepSeek, etc.)
 - An LLM API key for memo summarization/embedding (any OpenAI-compatible API: DeepSeek, GLM, etc.)
+- Ollama with embedding model (`ollama pull qwen3-embedding:0.6b`)
 - SSH deploy key for each Git repository to track
-- Git (for cloning plugin repos)
+- Git
+
+**For local deployment:**
+- Node.js 22 (LTS)
+- Python 3.12+
+
+**For Docker deployment:**
+- Docker & Docker Compose
 
 ---
 
@@ -111,8 +119,13 @@ repos:
     url: "git@github.com:org/my-repo.git"
     branch: "main"
 
+# For local deployment, use absolute paths:
+#   ssh_key_path: "/path/to/zhiliao/data/deploy_key"
+#   repos_dir: "/path/to/zhiliao/data/repos"
+# For Docker deployment, use container paths:
 ssh_key_path: "/app/data/deploy_key"
 repos_dir: "/app/data/repos"
+
 memo_url: "http://127.0.0.1:8090"
 poll_interval_minutes: 5
 deep_scan_cron: "0 2 * * *"
@@ -149,7 +162,42 @@ Add `data/deploy_key.pub` as a **read-only deploy key** to each Git repository:
 
 ## Step 4: Build and Start
 
-### Quick deploy (dev/test)
+### Option A: Local (bare-metal)
+
+Runs memo and agent directly on the host as background processes. No Docker needed.
+
+```bash
+bash deploy-local.sh setup     # create venv, install npm deps, rebuild native modules
+bash deploy-local.sh start     # start memo (port 8090) + agent
+```
+
+**Managing services:**
+
+```bash
+bash deploy-local.sh status    # show running/stopped
+bash deploy-local.sh stop      # graceful shutdown
+bash deploy-local.sh restart   # stop + start
+bash deploy-local.sh logs      # tail all logs (or: logs memo | logs agent)
+```
+
+Logs are written to `data/logs/{memo,agent}.log`. PIDs in `data/pids/`.
+
+**Environment variables:** `.env` is auto-sourced by deploy-local.sh. Use it for plugin env vars:
+
+```bash
+TENCENTCLOUD_SECRET_ID=...     # if cls-query plugin uses ${} substitution
+TENCENTCLOUD_SECRET_KEY=...
+```
+
+**Plugin paths:** For local deployment, plugin configs must use **absolute host paths** instead of `/app/data/`:
+
+```yaml
+# plugins/git-repos/config.yaml
+ssh_key_path: "/path/to/zhiliao/data/deploy_key"
+repos_dir: "/path/to/zhiliao/data/repos"
+```
+
+### Option B: Docker (quick)
 
 Mounts source code, tsx runs TypeScript directly. No compile step needed.
 
@@ -157,7 +205,7 @@ Mounts source code, tsx runs TypeScript directly. No compile step needed.
 bash deploy.sh          # builds zhiliao-build image if needed, starts agent
 ```
 
-### Full deploy (production/k8s)
+### Option C: Docker (full / production)
 
 Compiles TypeScript into a self-contained release image (no build tools, no source).
 
@@ -165,7 +213,7 @@ Compiles TypeScript into a self-contained release image (no build tools, no sour
 bash deploy.sh --full   # builds zhiliao-build → compiles → zhiliao-release image
 ```
 
-### Manual build
+### Docker manual build
 
 ```bash
 docker compose build
@@ -175,19 +223,33 @@ docker compose up -d
 ### Verify
 
 ```bash
-docker compose ps
+# Local deployment:
+bash deploy-local.sh status
 curl http://localhost:8090/health
-docker compose logs -f agent
+tail -20 data/logs/agent.log
 # Expected: "Plugin loaded: git-repos (N tools)"
 # Expected: "Plugin loaded: cls-query (N tools)"
 # Expected: "Plugin loaded: mysql-query (N tools)"
+
+# Docker deployment:
+docker compose ps
+curl http://localhost:8090/health
+docker compose logs -f agent
 ```
 
 ---
 
 ## Step 5: Configure Repositories
 
-Repositories are configured in `plugins/git-repos/config.yaml` under the `repos` section (see Step 2). After updating the config, restart the service.
+Repositories are configured in `plugins/git-repos/config.yaml` under the `repos` section (see Step 2). After updating the config, restart the service:
+
+```bash
+# Local:
+bash deploy-local.sh restart
+
+# Docker:
+docker compose restart agent
+```
 
 To check repository status at runtime:
 
@@ -289,23 +351,27 @@ llm:
 ### Health Checks
 
 ```bash
-# Memo service health
+# Memo service health (both modes)
 curl http://localhost:8090/health
 
-# Docker container health
+# Local deployment
+bash deploy-local.sh status
+
+# Docker deployment
 docker compose ps
 ```
 
 ### Logs
 
 ```bash
-# All services
+# Local deployment
+bash deploy-local.sh logs          # all
+bash deploy-local.sh logs agent    # agent only
+bash deploy-local.sh logs memo     # memo only
+
+# Docker deployment
 docker compose logs -f
-
-# Agent only
 docker compose logs -f agent
-
-# RAG (memo) only
 docker compose logs -f rag
 ```
 
@@ -324,6 +390,16 @@ docker compose logs -f rag
 ```bash
 git pull
 bash setup.sh          # pulls latest plugins
+```
+
+Then restart the services:
+
+```bash
+# Local deployment
+bash deploy-local.sh setup        # rebuild deps if package.json changed
+bash deploy-local.sh restart
+
+# Docker deployment
 docker compose build
 docker compose up -d
 ```
@@ -337,14 +413,18 @@ Data in `./data/` persists across updates. No migration is needed for SQLite sch
 | Symptom | Cause | Fix |
 |---------|-------|-----|
 | Bot doesn't respond in group | Not mentioned with trigger word | Use `@GitMemo` prefix |
-| `Memo service not reachable` at startup | Memo container not healthy yet | Wait for healthcheck, check `docker compose logs memo` |
+| `Memo service not reachable` at startup | Memo not healthy yet | Check `data/logs/memo.log` (local) or `docker compose logs rag` (Docker) |
 | `Missing required fields` | Missing API key in config.yaml | Check `llm.memo.api_key` in config.yaml |
 | `Config file not found` | Missing `config.yaml` | Run `bash setup.sh` or copy from `config.example.yaml` |
 | Git clone fails | Deploy key not authorized | Add `data/deploy_key.pub` to repo's deploy keys |
+| Git clone fails (local) | `GIT_SSH_COMMAND` not set | Ensure `data/deploy_key` exists; deploy-local.sh sets it automatically |
+| `SQLITE_READONLY` (local) | Files owned by root (from Docker) | `sudo chown -R $(whoami) data/` |
+| `NODE_MODULE_VERSION` mismatch | Native modules built for different Node.js | `bash deploy-local.sh setup` or `cd plugins/xxx && npm rebuild` |
 | 503 from Memo endpoints | Memo can't reach LLM | Check `llm.memo` section in config.yaml |
 | FTS search returns no results | Query too specific | Search uses word-level matching, try simpler terms |
 | Agent returns empty responses | Invalid API key | Check `llm.agent.api_key` in config.yaml |
 | No tools available | Plugins not loaded | Check `plugins/` dir has cloned repos, check logs for "Plugin loaded" |
+| Plugin paths use `/app/data/` (local) | Docker paths in plugin config | Replace with absolute host paths in plugin `config.yaml` |
 | `Unknown command: /repo` | Old command format | Use `/git-repos list` or `/git-repos status` instead |
 
 ---

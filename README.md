@@ -104,6 +104,19 @@ ssh-keygen -t ed25519 -f data/deploy_key -N "" -C "zhiliao-deploy"
 
 ### 5. 部署
 
+**本地部署**（推荐，需要 Node.js 22 (LTS) 和 Python 3.12+）：
+
+```bash
+bash deploy-local.sh setup    # 安装依赖（Python venv、npm、插件原生模块）
+bash deploy-local.sh start    # 启动 memo + agent
+bash deploy-local.sh status   # 查看运行状态
+bash deploy-local.sh logs     # 查看日志
+```
+
+> **注意**：本地部署时，插件配置中的路径需使用绝对路径而非 Docker 容器路径 `/app/data/`。详见[部署手册](docs/deployment.md)。
+
+**Docker 部署**：
+
 ```bash
 docker compose build
 docker compose up -d
@@ -124,7 +137,7 @@ docker compose up -d
 
 ### 前提条件
 
-- 目标机器已安装 Docker 和 Docker Compose
+- 目标机器已安装 Node.js 22 (LTS) 和 Python 3.12+（本地部署），或 Docker 和 Docker Compose（Docker 部署）
 - 目标机器已安装 Ollama 并拉取 embedding 模型（`ollama pull qwen3-embedding:0.6b`）
 - 已创建飞书机器人应用（[飞书开放平台](https://open.feishu.cn)），开启 WebSocket 事件订阅
 - 已准备 LLM API Key（Anthropic / 智谱 / DeepSeek 等）
@@ -207,7 +220,8 @@ admins:
 
 ```
 zhiliao/
-  docker-compose.yml          # 部署编排
+  deploy-local.sh             # 本地裸机部署脚本
+  docker-compose.yml          # Docker 部署编排
   config.yaml                 # 配置文件（gitignored）
   config.example.yaml         # 配置模板
   SOUL.example.md             # Bot 人格配置模板
@@ -230,7 +244,7 @@ zhiliao/
 
 ## 技术栈
 
-- TypeScript 5+ / Node.js 20+
+- TypeScript 5+ / Node.js 22 (LTS)
 - Python 3.12+ / FastAPI
 - SQLite (better-sqlite3 + WAL / FTS5)
 - Docker Compose (host network mode)

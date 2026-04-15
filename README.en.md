@@ -104,6 +104,19 @@ ssh-keygen -t ed25519 -f data/deploy_key -N "" -C "zhiliao-deploy"
 
 ### 5. Deploy
 
+**Local deployment** (recommended, requires Node.js 22 (LTS) and Python 3.12+):
+
+```bash
+bash deploy-local.sh setup    # install deps (Python venv, npm, plugin native modules)
+bash deploy-local.sh start    # start memo + agent
+bash deploy-local.sh status   # check running state
+bash deploy-local.sh logs     # tail logs
+```
+
+> **Note**: For local deployment, plugin configs must use absolute host paths instead of Docker container paths (`/app/data/`). See [Deployment Manual](docs/deployment.md).
+
+**Docker deployment**:
+
 ```bash
 docker compose build
 docker compose up -d
@@ -124,7 +137,7 @@ Zhiliao supports interactive deployment via AI agents (Claude Code, Cursor, etc.
 
 ### Prerequisites
 
-- Target machine has Docker and Docker Compose installed
+- Target machine has Node.js 22 (LTS) and Python 3.12+ (local deploy), or Docker and Docker Compose (Docker deploy)
 - Target machine has Ollama with an embedding model (`ollama pull qwen3-embedding:0.6b`)
 - A Feishu bot app created at [Feishu Open Platform](https://open.feishu.cn) with WebSocket event subscription enabled
 - An LLM API key (Anthropic / ZhiPu / DeepSeek / etc.)
@@ -207,7 +220,8 @@ admins:
 
 ```
 zhiliao/
-  docker-compose.yml          # Deployment orchestration
+  deploy-local.sh             # Local bare-metal deployment script
+  docker-compose.yml          # Docker deployment orchestration
   config.yaml                 # Configuration (gitignored)
   config.example.yaml         # Config template
   SOUL.example.md             # Bot personality template
@@ -230,7 +244,7 @@ zhiliao/
 
 ## Tech Stack
 
-- TypeScript 5+ / Node.js 20+
+- TypeScript 5+ / Node.js 22 (LTS)
 - Python 3.12+ / FastAPI
 - SQLite (better-sqlite3 + WAL / FTS5)
 - Docker Compose (host network mode)

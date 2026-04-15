@@ -45,7 +45,7 @@ Builtin memo-tools handles knowledge base; all other tools come from plugins.
 
 ## Tech Stack
 
-- **TypeScript 5+ / Node.js 20+** — 主框架
+- **TypeScript 5+ / Node.js 22 (LTS)** — 主框架
 - **Python 3.12+ / FastAPI** — Memo 知识服务
 - **SQLite** (better-sqlite3 + WAL) — session 持久化
 - **SQLite + FTS5** — 知识存储 + 全文检索

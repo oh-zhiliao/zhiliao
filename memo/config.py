@@ -15,6 +15,7 @@ class MemoConfig:
 
 def _load_yaml_config(path: str = "/app/config.yaml") -> dict:
     """Load config.yaml and return the llm section, or empty dict if unavailable."""
+    path = os.environ.get("MEMO_CONFIG_PATH", path)
     try:
         import yaml
         with open(path) as f:
