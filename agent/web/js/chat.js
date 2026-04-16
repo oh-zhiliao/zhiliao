@@ -101,7 +101,7 @@ var Chat = (function () {
       content: text,
       sessionId: _currentSessionId,
     });
-    _appendMessageEl(userMsg);
+    _appendMessageEl(userMsg, true);
     _scrollToBottom();
 
     // Begin streaming state
@@ -118,7 +118,7 @@ var Chat = (function () {
       sessionId: _currentSessionId,
     });
     _streamingMessageId = botMsg.id;
-    _appendMessageEl(botMsg);
+    _appendMessageEl(botMsg, true);
     _scrollToBottom();
 
     // Send via WS
@@ -193,7 +193,7 @@ var Chat = (function () {
         content: msg.content,
         sessionId: _currentSessionId,
       });
-      _appendMessageEl(botMsg);
+      _appendMessageEl(botMsg, true);
     }
     _scrollToBottom();
   }
@@ -224,7 +224,7 @@ var Chat = (function () {
         content: errorText,
         sessionId: _currentSessionId,
       });
-      _appendMessageEl(errorMsg);
+      _appendMessageEl(errorMsg, true);
     }
     _scrollToBottom();
   }
@@ -245,18 +245,25 @@ var Chat = (function () {
     }
 
     messages.forEach(function (msg) {
-      _appendMessageEl(msg);
+      _appendMessageEl(msg, false);
     });
     _scrollToBottom();
   }
 
-  function _appendMessageEl(msg) {
+  /**
+   * @param {object} msg - message data
+   * @param {boolean} animate - whether to apply fade-in animation
+   */
+  function _appendMessageEl(msg, animate) {
     // Remove welcome placeholder if present
     var placeholder = $messages.querySelector(".welcome-placeholder");
     if (placeholder) placeholder.remove();
 
     var el = document.createElement("div");
     el.className = "message " + msg.role;
+    if (animate) {
+      el.classList.add("fade-in");
+    }
     el.dataset.messageId = msg.id;
 
     if (msg.role === "bot" || msg.role === "error") {
@@ -279,6 +286,7 @@ var Chat = (function () {
     } else if (msg.role === "bot") {
       if (msg.content) {
         Markdown.renderInto(bubble, msg.content);
+        _addCodeBlockLabels(bubble);
       }
     } else if (msg.role === "error") {
       bubble.textContent = msg.content;
@@ -286,6 +294,39 @@ var Chat = (function () {
 
     el.appendChild(bubble);
     $messages.appendChild(el);
+  }
+
+  /**
+   * Detect language in code blocks and add a label bar above them.
+   */
+  function _addCodeBlockLabels(container) {
+    container.querySelectorAll("pre code").forEach(function (codeEl) {
+      var lang = _detectCodeLanguage(codeEl);
+      if (lang) {
+        var pre = codeEl.parentElement;
+        if (pre && pre.tagName === "PRE" && !pre.querySelector(".code-lang-label")) {
+          var label = document.createElement("span");
+          label.className = "code-lang-label";
+          label.textContent = lang;
+          pre.insertBefore(label, pre.firstChild);
+        }
+      }
+    });
+  }
+
+  /**
+   * Detect language from hljs class names on a <code> element.
+   */
+  function _detectCodeLanguage(codeEl) {
+    // Check class names like "language-js", "hljs language-javascript", etc.
+    var classes = codeEl.className.split(/\s+/);
+    for (var i = 0; i < classes.length; i++) {
+      var match = classes[i].match(/^language-(.+)$/);
+      if (match && match[1] !== "undefined" && match[1] !== "plaintext") {
+        return match[1];
+      }
+    }
+    return null;
   }
 
   function _createToolChip(tool) {
@@ -320,6 +361,7 @@ var Chat = (function () {
     var bubble = msgEl.querySelector(".message-bubble");
     if (bubble && _streamingContent) {
       Markdown.renderInto(bubble, _streamingContent);
+      _addCodeBlockLabels(bubble);
     }
   }
 

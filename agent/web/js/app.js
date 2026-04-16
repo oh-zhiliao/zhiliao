@@ -7,6 +7,7 @@ var App = (function () {
   var $loginForm = null;
   var $passwordInput = null;
   var $loginError = null;
+  var $connectionStatus = null;
   var _chatInitialized = false;
 
   function init() {
@@ -15,6 +16,7 @@ var App = (function () {
     $loginForm = document.getElementById("login-form");
     $passwordInput = document.getElementById("password-input");
     $loginError = document.getElementById("login-error");
+    $connectionStatus = document.getElementById("connection-status");
 
     $loginForm.addEventListener("submit", _handleLogin);
 
@@ -23,11 +25,31 @@ var App = (function () {
       _showLogin();
     });
 
+    // WS connection status handlers
+    WS.on("open", function () {
+      _updateConnectionStatus(true);
+    });
+
+    WS.on("close", function () {
+      _updateConnectionStatus(false);
+    });
+
     // Route to correct screen
     if (Auth.isAuthenticated()) {
       _showChat();
     } else {
       _showLogin();
+    }
+  }
+
+  function _updateConnectionStatus(connected) {
+    if (!$connectionStatus) return;
+    if (connected) {
+      $connectionStatus.className = "connection-dot connected";
+      $connectionStatus.title = "Connected";
+    } else {
+      $connectionStatus.className = "connection-dot disconnected";
+      $connectionStatus.title = "Disconnected";
     }
   }
 
@@ -57,6 +79,7 @@ var App = (function () {
 
   function _showLogin() {
     WS.disconnect();
+    _updateConnectionStatus(false);
     $chatScreen.hidden = true;
     $loginScreen.hidden = false;
     $passwordInput.focus();

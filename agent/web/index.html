@@ -3,7 +3,10 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>知了 WebChat</title>
+  <title>知了</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;600;700&family=Source+Code+Pro:wght@400;500&family=Source+Sans+3:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="css/style.css">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
 </head>
@@ -39,12 +42,15 @@
     <main id="chat-main">
       <header id="chat-header">
         <span id="chat-title">New Chat</span>
+        <span id="connection-status" class="connection-dot disconnected" title="Disconnected"></span>
       </header>
       <div id="messages"></div>
       <div id="input-area">
-        <textarea id="message-input" placeholder="Ask about your codebase..." rows="1"></textarea>
-        <button id="send-btn" title="Send">&#8593;</button>
-        <button id="stop-btn" title="Stop" hidden>&#9632;</button>
+        <div class="input-container">
+          <textarea id="message-input" placeholder="Ask about your codebase..." rows="1"></textarea>
+          <button id="send-btn" title="Send">&#8593;</button>
+          <button id="stop-btn" title="Stop" hidden>&#9632;</button>
+        </div>
       </div>
     </main>
   </div>
