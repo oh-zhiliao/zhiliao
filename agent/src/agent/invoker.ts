@@ -24,6 +24,14 @@ export interface AgentResponse {
 
 export type ProgressCallback = (info: string) => void;
 
+export interface StreamingCallbacks {
+  onTextDelta?: (delta: string) => void;
+  onToolStart?: (toolName: string, summary: string) => void;
+  onToolEnd?: (toolName: string) => void;
+  onComplete?: (fullText: string) => void;
+  onError?: (error: string) => void;
+}
+
 // Unified internal types for provider-agnostic agentic loop
 interface LLMTextBlock { type: "text"; text: string }
 interface LLMToolCallBlock { type: "tool_use"; id: string; name: string; input: Record<string, any> }
@@ -146,6 +154,17 @@ export class AgentInvoker {
 
   async ask(question: string, sessionId: string, onProgress?: ProgressCallback): Promise<AgentResponse> {
     return this.withSessionLock(sessionId, () => this.doAsk(question, sessionId, onProgress));
+  }
+
+  async askStreaming(
+    question: string,
+    sessionId: string,
+    callbacks: StreamingCallbacks,
+    signal?: AbortSignal,
+  ): Promise<string> {
+    return this.withSessionLock(sessionId, () =>
+      this.doAskStreaming(question, sessionId, callbacks, signal)
+    );
   }
 
   private async doAsk(question: string, sessionId: string, onProgress?: ProgressCallback): Promise<AgentResponse> {
@@ -287,6 +306,183 @@ export class AgentInvoker {
       : finalText || "(空回复，请重试)";
 
     return { text, sessionId, sessionExpired };
+  }
+
+  private async doAskStreaming(
+    question: string,
+    sessionId: string,
+    callbacks: StreamingCallbacks,
+    signal?: AbortSignal,
+  ): Promise<string> {
+    // Check abort before starting
+    if (signal?.aborted) {
+      const err = new Error("Aborted");
+      err.name = "AbortError";
+      throw err;
+    }
+
+    let sessionExpired = false;
+
+    const entry = this.loadOrCreateSession(sessionId);
+
+    // Check if session is expired
+    if (Date.now() - entry.lastAccessedAt > SESSION_TTL_MS) {
+      sessionExpired = true;
+      entry.history = [];
+      entry.totalInputTokens = 0;
+      entry.totalOutputTokens = 0;
+      entry.createdAt = Date.now();
+    }
+
+    entry.lastAccessedAt = Date.now();
+    this.pushUserMessage(entry, question);
+
+    // Trim history
+    this.trimHistory(entry);
+
+    const toolDefs = this.tools?.getToolDefinitions() ?? [];
+
+    const addendum = this.tools?.getSystemPromptAddendum() ?? "";
+    const tz = this.config.timezone;
+    const now = new Date();
+    const dateStr = tz
+      ? now.toLocaleDateString("sv-SE", { timeZone: tz })
+      : now.toISOString().split("T")[0];
+    const timeStr = tz
+      ? now.toLocaleTimeString("en-GB", { timeZone: tz, hour: "2-digit", minute: "2-digit", hour12: false })
+      : now.toTimeString().split(" ")[0].slice(0, 5);
+    const dateLine = `\n\nCurrent date and time: ${dateStr} ${timeStr}${tz ? ` (${tz})` : ""}`;
+
+    // Auto-inject memory context so the LLM always has relevant knowledge
+    let memoryContext = "";
+    if (this.tools?.hasTool("memo-tools.get_memory")) {
+      try {
+        if (entry.history.length === 1) {
+          const memResult = await this.tools.executeTool("memo-tools.get_memory", {});
+          if (memResult && !memResult.startsWith("No project memory")) {
+            memoryContext += `\n\n## Project Memory\n${memResult}`;
+          }
+        }
+        if (this.tools.hasTool("memo-tools.memory_search")) {
+          const searchResult = await this.tools.executeTool("memo-tools.memory_search", { query: question });
+          if (searchResult && !searchResult.startsWith("No relevant") && !searchResult.startsWith("Memory search")) {
+            memoryContext += `\n\n## Relevant Memory (auto-retrieved)\n${searchResult}`;
+          }
+        }
+      } catch { /* ignore — memory is optional */ }
+    }
+    const effectivePrompt = this.config.systemPrompt + dateLine + memoryContext + (addendum ? `\n\n${addendum}` : "");
+
+    let finalText = "";
+    let expensiveIterations = 0;
+    let totalIterations = 0;
+
+    try {
+      for (;;) {
+        totalIterations++;
+
+        // Check abort before each LLM call
+        if (signal?.aborted) {
+          const err = new Error("Aborted");
+          err.name = "AbortError";
+          throw err;
+        }
+
+        const response = await this.callLLMWithRetry(entry.history, toolDefs, effectivePrompt);
+        entry.totalInputTokens += response.inputTokens;
+        entry.totalOutputTokens += response.outputTokens;
+
+        // Extract text and tool call blocks
+        const textParts = response.content
+          .filter((b): b is LLMTextBlock => b.type === "text")
+          .map((b) => b.text);
+
+        const toolCalls = response.content.filter(
+          (b): b is LLMToolCallBlock => b.type === "tool_use"
+        );
+
+        console.log(`[${sessionId}] streaming iter=${totalIterations} tokens=${response.inputTokens}+${response.outputTokens} tools=${toolCalls.map(c => c.name).join(",") || "none"} stop=${response.stopReason}`);
+
+        if (toolCalls.length === 0 || response.stopReason !== "tool_use") {
+          // No tool calls — done
+          finalText = textParts.join("\n").trim();
+          entry.history.push(response.rawAssistantContent);
+          // Fire text delta with the full text (v1: not incremental)
+          if (finalText) {
+            callbacks.onTextDelta?.(finalText);
+          }
+          break;
+        }
+
+        // Only count iterations with expensive (non-local) tools
+        const hasExpensiveTool = toolCalls.some((c) => !this.tools?.isCheapTool(c.name));
+        if (hasExpensiveTool) expensiveIterations++;
+
+        entry.history.push(response.rawAssistantContent);
+
+        // Execute tools and add results to history
+        const toolResultPairs: Array<{ id: string; name: string; input: Record<string, any>; result: string }> = [];
+        for (const call of toolCalls) {
+          const inputSummary = this.tools?.summarizeToolInput(call.name, call.input) ?? "";
+
+          // Fire onToolStart callback
+          callbacks.onToolStart?.(call.name, inputSummary);
+
+          const result = this.tools
+            ? await this.tools.executeTool(call.name, call.input)
+            : `Tool not available: ${call.name}`;
+          toolResultPairs.push({ id: call.id, name: call.name, input: call.input, result });
+
+          // Fire onToolEnd callback
+          callbacks.onToolEnd?.(call.name);
+        }
+
+        this.pushToolResults(entry, toolResultPairs);
+
+        // If hit either limit, make one final call WITHOUT tools to force a summary
+        if (expensiveIterations >= MAX_TOOL_ITERATIONS || totalIterations >= MAX_TOTAL_ITERATIONS) {
+          // Check abort before final LLM call
+          if (signal?.aborted) {
+            const err = new Error("Aborted");
+            err.name = "AbortError";
+            throw err;
+          }
+
+          const finalResponse = await this.callLLMWithRetry(entry.history, [], effectivePrompt);
+          entry.totalInputTokens += finalResponse.inputTokens;
+          entry.totalOutputTokens += finalResponse.outputTokens;
+          const finalParts = finalResponse.content
+            .filter((b): b is LLMTextBlock => b.type === "text")
+            .map((b) => b.text);
+          finalText = finalParts.join("\n") || "(无法生成回复，请重试)";
+          entry.history.push(finalResponse.rawAssistantContent);
+          if (finalText) {
+            callbacks.onTextDelta?.(finalText);
+          }
+          break;
+        }
+      }
+    } catch (err: any) {
+      callbacks.onError?.(err.message ?? String(err));
+      throw err;
+    }
+
+    // Compress if approaching token limit
+    if (entry.totalInputTokens > TOKEN_SOFT_LIMIT && this.compressorConfig) {
+      await this.compressOldMessages(entry);
+    }
+
+    this.saveSession(sessionId, entry);
+
+    const text = sessionExpired
+      ? `（之前的会话已过期，已重新开始为您服务）\n\n${finalText || "(空回复，请重试)"}`
+      : finalText || "(空回复，请重试)";
+
+    // Caller is responsible for filtering (filterSecrets + filterOutput),
+    // consistent with doAsk() which also returns unfiltered text.
+    callbacks.onComplete?.(text);
+
+    return text;
   }
 
   // ---- Provider-specific LLM call and message formatting ----

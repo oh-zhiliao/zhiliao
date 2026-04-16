@@ -429,6 +429,40 @@ Data in `./data/` persists across updates. No migration is needed for SQLite sch
 
 ---
 
+## WebChat (Optional)
+
+Browser-based chat UI for personal use. Provides a ChatGPT-style interface with multi-session support.
+
+### Configuration
+
+Add to `config.yaml`:
+
+```yaml
+webchat:
+  enabled: true
+  port: 8080
+  password: "your-password"
+  jwt_secret: "auto"
+```
+
+- `enabled`: Set to `true` to start the WebChat server
+- `port`: HTTP/WebSocket server port (default: 8080)
+- `password`: Login password. Plaintext is auto-hashed to bcrypt on first run
+- `jwt_secret`: JWT signing secret. Set to `"auto"` to auto-generate on each startup
+
+### Access
+
+Open `http://localhost:8080` (or your server's address) in a browser.
+
+### Notes
+
+- Session management uses localStorage (no server-side conversation persistence)
+- Agent sessions are managed server-side (same as Feishu sessions)
+- WebSocket streaming provides real-time tool call visibility
+- Delete sessions via the sidebar to clean up both localStorage and server-side agent sessions
+
+---
+
 ## Security Notes
 
 - Deploy keys should be **read-only** — Zhiliao never pushes to repositories

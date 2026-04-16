@@ -10,6 +10,11 @@
 └─────────────┘                  │  (消息路由/命令分发)    │
                                  └──────┬───────────────┘
                                         │
+┌─────────────┐    HTTP/WS       ┌──────┴───────────────┐
+│   Browser   │ ◄──────────────► │   WebChatChannel     │
+└─────────────┘                  │  (HTTP + WebSocket)  │
+                                 └──────┬───────────────┘
+                                        │
                           ┌─────────────┤
                           ▼             ▼
                    ┌───────────┐ ┌───────────┐
@@ -78,7 +83,8 @@ Deep Scanner (daily) → walk repo files
 ## Key Design Decisions
 
 - **全插件架构**: 核心应用只包含 memo-tools（与内置 Memo 服务紧耦合），其余 tool 实现由插件提供
-- 飞书话题群 per-thread session (`feishu:{chat_id}:{thread_id}`)
+- **多通道支持**: FeishuAdapter 和 WebChatChannel 共享同一 AgentInvoker 和 Session 层，通道间互不干扰
+- 飞书话题群 per-thread session (`feishu:{chat_id}:{thread_id}`); WebChat per-session key (`webchat:{session_id}`)
 - 插件可声明命令 (`getCommandHandlers()`)、后台服务 (`start()/stop()`)、工具 (`getToolDefinitions()`)
 - 命令格式: `/{plugin-name} {subcommand}`，会话命令 (/new, /context, /help) 内置
 - HTTP for Memo（非 MCP），简单可靠适合后台任务

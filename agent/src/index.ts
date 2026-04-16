@@ -6,7 +6,11 @@ import { loadPlugins } from "./agent/tool-loader.js";
 import { MemoToolsPlugin } from "./builtin/memo-tools.js";
 import { FeishuClient } from "./channels/feishu/client.js";
 import { FeishuAdapter } from "./channels/feishu/adapter.js";
+import { ChannelRouter } from "./channels/channel-router.js";
 import { existsSync, mkdirSync } from "fs";
+import { createWebChatServer } from "./channels/webchat/server.js";
+import { hashSync } from "bcryptjs";
+import { randomBytes } from "crypto";
 import { join, dirname, resolve } from "path";
 import type { PluginContext } from "./agent/tool-plugin.js";
 
@@ -83,6 +87,7 @@ async function main() {
 
   agent.setTools(toolRegistry);
   const pluginSecretPatterns = toolRegistry.getSecretPatterns();
+  const channelRouter = new ChannelRouter(agent, toolRegistry, pluginSecretPatterns);
   agent.setDB(db);
   // Configure session compressor with memo LLM (cheaper model for summarization)
   if (config.llm.memo?.api_key && config.llm.memo?.base_url) {
@@ -138,10 +143,31 @@ async function main() {
   await feishuClient.connect();
   console.log("Zhiliao is running. Listening for messages...");
 
+  // Optional WebChat server
+  let webchatServer: { start: () => void; stop: () => void } | null = null;
+  if (config.webchat?.enabled) {
+    const rawPassword = config.webchat.password ?? "changeme";
+    const passwordHash = rawPassword.startsWith("$2") ? rawPassword : hashSync(rawPassword, 10);
+    const jwtSecret = (!config.webchat.jwt_secret || config.webchat.jwt_secret === "auto")
+      ? randomBytes(32).toString("hex")
+      : config.webchat.jwt_secret;
+    const port = config.webchat.port ?? 8080;
+
+    webchatServer = createWebChatServer(
+      { port, passwordHash, jwtSecret },
+      channelRouter,
+      agent,
+      toolRegistry,
+      pluginSecretPatterns,
+    );
+    webchatServer.start();
+  }
+
   // Graceful shutdown
   const shutdown = async () => {
     console.log("Shutting down...");
     clearInterval(sessionCleanupTimer);
+    webchatServer?.stop();
     await toolRegistry.stopAll();
     await toolRegistry.destroyAll();
     feishuClient.disconnect();
