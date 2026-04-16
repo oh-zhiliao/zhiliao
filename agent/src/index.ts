@@ -7,7 +7,6 @@ import { MemoToolsPlugin } from "./builtin/memo-tools.js";
 import { FeishuClient } from "./channels/feishu/client.js";
 import { FeishuAdapter } from "./channels/feishu/adapter.js";
 import { existsSync, mkdirSync } from "fs";
-import { createApiServer } from "./api-server.js";
 import { join, dirname, resolve } from "path";
 import type { PluginContext } from "./agent/tool-plugin.js";
 
@@ -138,15 +137,6 @@ async function main() {
   console.log("Connecting to Feishu...");
   await feishuClient.connect();
   console.log("Zhiliao is running. Listening for messages...");
-
-  // Optional API server (opt-in via API_PORT env var)
-  const apiServer = createApiServer({ agent, toolRegistry, secretPatterns: pluginSecretPatterns });
-  const apiPort = parseInt(process.env.API_PORT || "0", 10);
-  if (apiPort > 0) {
-    apiServer.listen(apiPort, () => {
-      console.log(`API server listening on port ${apiPort}`);
-    });
-  }
 
   // Graceful shutdown
   const shutdown = async () => {
