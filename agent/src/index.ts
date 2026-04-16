@@ -6,6 +6,7 @@ import { loadPlugins } from "./agent/tool-loader.js";
 import { MemoToolsPlugin } from "./builtin/memo-tools.js";
 import { FeishuClient } from "./channels/feishu/client.js";
 import { FeishuAdapter } from "./channels/feishu/adapter.js";
+import { ChannelRouter } from "./channels/channel-router.js";
 import { existsSync, mkdirSync } from "fs";
 import { createApiServer } from "./api-server.js";
 import { join, dirname, resolve } from "path";
@@ -84,6 +85,7 @@ async function main() {
 
   agent.setTools(toolRegistry);
   const pluginSecretPatterns = toolRegistry.getSecretPatterns();
+  const channelRouter = new ChannelRouter(agent, toolRegistry, pluginSecretPatterns);
   agent.setDB(db);
   // Configure session compressor with memo LLM (cheaper model for summarization)
   if (config.llm.memo?.api_key && config.llm.memo?.base_url) {
