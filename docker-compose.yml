@@ -13,7 +13,7 @@ services:
       - ./plugins:/app/plugins
     environment:
       - USE_CN_MIRROR=${USE_CN_MIRROR:-false}
-      - GIT_SSH_COMMAND=ssh -i /app/data/deploy_key -o UserKnownHostsFile=/app/data/ssh/known_hosts -o StrictHostKeyChecking=yes
+      - GIT_SSH_COMMAND=ssh -i /app/data/deploy_key -o UserKnownHostsFile=/app/data/ssh/known_hosts -o StrictHostKeyChecking=yes -o ConnectTimeout=10 -o ServerAliveInterval=15 -o ServerAliveCountMax=3
     depends_on:
       rag:
         condition: service_healthy
