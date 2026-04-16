@@ -135,7 +135,7 @@ describe("AgentInvoker.askStreaming", () => {
     expect(completeText).toBe("(空回复，请重试)");
   });
 
-  it("applies filterOutput from tools", async () => {
+  it("returns unfiltered text (caller handles filtering)", async () => {
     const mockTools = {
       getToolDefinitions: () => [],
       executeTool: vi.fn(),
@@ -159,8 +159,10 @@ describe("AgentInvoker.askStreaming", () => {
       onComplete: (t) => { completeText = t; },
     });
 
-    expect(result).toBe("Connect to alias");
-    expect(completeText).toBe("Connect to alias");
+    // askStreaming does NOT apply filterOutput — caller is responsible,
+    // consistent with doAsk() which also returns unfiltered text.
+    expect(result).toBe("Connect to secret-host");
+    expect(completeText).toBe("Connect to secret-host");
   });
 
   it("fires onToolStart/onToolEnd for multiple tools in one response", async () => {

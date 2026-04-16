@@ -121,7 +121,9 @@ export function createWebChatServer(
               {
                 onTextDelta: (delta) => {
                   if (ws.readyState === WebSocket.OPEN) {
-                    ws.send(JSON.stringify({ type: "text_delta", sessionId, content: delta }));
+                    // Filter secrets from streaming deltas to prevent leaks
+                    const filtered = filterSecrets(delta, secretPatterns);
+                    ws.send(JSON.stringify({ type: "text_delta", sessionId, content: filtered }));
                   }
                 },
                 onToolStart: (toolName, summary) => {

@@ -478,12 +478,11 @@ export class AgentInvoker {
       ? `（之前的会话已过期，已重新开始为您服务）\n\n${finalText || "(空回复，请重试)"}`
       : finalText || "(空回复，请重试)";
 
-    // Apply output filtering from plugins
-    const filteredText = this.tools?.filterOutput(text) ?? text;
+    // Caller is responsible for filtering (filterSecrets + filterOutput),
+    // consistent with doAsk() which also returns unfiltered text.
+    callbacks.onComplete?.(text);
 
-    callbacks.onComplete?.(filteredText);
-
-    return filteredText;
+    return text;
   }
 
   // ---- Provider-specific LLM call and message formatting ----
