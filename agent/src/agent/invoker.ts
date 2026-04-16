@@ -77,6 +77,7 @@ const MAX_TOTAL_ITERATIONS = 50;
 const LLM_TIMEOUT_MS = 120_000; // 120 seconds per LLM call
 const LLM_MAX_RETRIES = 2; // 2 retries = 3 total attempts
 const LLM_RETRY_DELAYS = [1000, 3000]; // backoff delays in ms
+const DEBUG_LLM = !!process.env.DEBUG_LLM;
 
 export const DEFAULT_SOUL_PROMPT = `# 知了 (Zhiliao)
 
@@ -560,6 +561,17 @@ export class AgentInvoker {
       params.tools = tools;
     }
 
+    if (DEBUG_LLM) {
+      for (const msg of messages) {
+        if (msg.role === "assistant" && (msg as any).tool_calls) {
+          for (const tc of (msg as any).tool_calls) {
+            const argsVal = tc.function?.arguments;
+            console.log(`[DEBUG] non-streaming history tool_call: name=${tc.function?.name} args_type=${typeof argsVal} args_raw=${String(argsVal).slice(0, 200)}`);
+          }
+        }
+      }
+    }
+
     const response = await this.openaiClient!.chat.completions.create(params, {
       signal: AbortSignal.timeout(LLM_TIMEOUT_MS),
     });
@@ -790,6 +802,18 @@ export class AgentInvoker {
     const effectiveSignal = signal
       ? AbortSignal.any([signal, timeoutSignal])
       : timeoutSignal;
+
+    if (DEBUG_LLM) {
+      for (const msg of messages) {
+        if (msg.role === "assistant" && (msg as any).tool_calls) {
+          for (const tc of (msg as any).tool_calls) {
+            const argsVal = tc.function?.arguments;
+            console.log(`[DEBUG] history tool_call: name=${tc.function?.name} args_type=${typeof argsVal} args_raw=${String(argsVal).slice(0, 200)}`);
+          }
+        }
+      }
+      console.log(`[DEBUG] streaming request: model=${params.model} tools=${tools.length} messages=${messages.length}`);
+    }
 
     const stream = await this.openaiClient!.chat.completions.create(params, {
       signal: effectiveSignal,
