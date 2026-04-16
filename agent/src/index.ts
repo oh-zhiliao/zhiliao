@@ -8,7 +8,6 @@ import { FeishuClient } from "./channels/feishu/client.js";
 import { FeishuAdapter } from "./channels/feishu/adapter.js";
 import { ChannelRouter } from "./channels/channel-router.js";
 import { existsSync, mkdirSync } from "fs";
-import { createApiServer } from "./api-server.js";
 import { createWebChatServer } from "./channels/webchat/server.js";
 import { hashSync } from "bcryptjs";
 import { randomBytes } from "crypto";
@@ -162,15 +161,6 @@ async function main() {
       pluginSecretPatterns,
     );
     webchatServer.start();
-  }
-
-  // Optional API server (opt-in via API_PORT env var)
-  const apiServer = createApiServer({ agent, toolRegistry, secretPatterns: pluginSecretPatterns });
-  const apiPort = parseInt(process.env.API_PORT || "0", 10);
-  if (apiPort > 0) {
-    apiServer.listen(apiPort, () => {
-      console.log(`API server listening on port ${apiPort}`);
-    });
   }
 
   // Graceful shutdown
