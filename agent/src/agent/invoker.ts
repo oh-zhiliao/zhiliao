@@ -868,7 +868,7 @@ export class AgentInvoker {
       toolCallsArray.push({
         id: tc.id,
         type: "function",
-        function: { name: tc.name, arguments: tc.arguments },
+        function: { name: tc.name, arguments: JSON.stringify(args) },
       });
     }
 
