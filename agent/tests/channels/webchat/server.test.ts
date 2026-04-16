@@ -597,3 +597,372 @@ describe("createWebChatServer WebSocket", () => {
     expect(messages.some(m => m.type === "error" && m.message === "Already processing")).toBe(true);
   });
 });
+
+// --- Feishu OAuth2 endpoint tests ---
+
+describe("Feishu OAuth2 endpoints", () => {
+  let server: { start: () => void; stop: () => void };
+  let baseUrl: string;
+  let testPort: number;
+
+  const FEISHU_CONFIG: WebChatConfig = {
+    port: 0,
+    passwordHash: hashSync(TEST_PASSWORD, 10),
+    jwtSecret: TEST_JWT_SECRET,
+    feishuAuth: {
+      appId: "cli_test_app",
+      appSecret: "test_app_secret",
+      redirectUri: "http://localhost:9999/api/auth/feishu/callback",
+      userIdField: "open_id",
+      allowedUsers: [],
+    },
+  };
+
+  const NO_FEISHU_CONFIG: WebChatConfig = {
+    port: 0,
+    passwordHash: hashSync(TEST_PASSWORD, 10),
+    jwtSecret: TEST_JWT_SECRET,
+  };
+
+  const mockAgent = { clearSession: vi.fn(), askStreaming: vi.fn() } as any;
+  const mockToolRegistry = { filterOutput: vi.fn((t: string) => t) } as any;
+  const mockRouter = { handleMessage: vi.fn() } as any;
+
+  async function startServer(config: WebChatConfig) {
+    const { createWebChatServer } = await import("../../../src/channels/webchat/server.js");
+    testPort = 29876 + Math.floor(Math.random() * 1000);
+    const configWithPort = { ...config, port: testPort };
+    server = createWebChatServer(configWithPort, mockRouter, mockAgent, mockToolRegistry, []);
+    await new Promise<void>((resolve) => {
+      server.start();
+      setTimeout(() => resolve(), 200);
+    });
+    baseUrl = `http://127.0.0.1:${testPort}`;
+  }
+
+  afterEach(() => {
+    server?.stop();
+    vi.clearAllMocks();
+  });
+
+  describe("GET /api/auth/feishu/config", () => {
+    it("returns enabled:false when feishuAuth is not configured", async () => {
+      await startServer(NO_FEISHU_CONFIG);
+      const res = await fetch(`${baseUrl}/api/auth/feishu/config`);
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.enabled).toBe(false);
+    });
+
+    it("returns enabled:true when feishuAuth is configured", async () => {
+      await startServer(FEISHU_CONFIG);
+      const res = await fetch(`${baseUrl}/api/auth/feishu/config`);
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.enabled).toBe(true);
+    });
+  });
+
+  describe("GET /api/auth/feishu/authorize", () => {
+    it("redirects to Feishu with state and correct params", async () => {
+      await startServer(FEISHU_CONFIG);
+      const res = await fetch(`${baseUrl}/api/auth/feishu/authorize`, { redirect: "manual" });
+      expect(res.status).toBe(302);
+      const location = res.headers.get("location")!;
+      expect(location).toContain("accounts.feishu.cn/open-apis/authen/v1/authorize");
+      expect(location).toContain("client_id=cli_test_app");
+      expect(location).toContain("response_type=code");
+      expect(location).toContain("scope=contact%3Auser.base%3Areadonly");
+
+      // Extract and verify state is a valid JWT
+      const url = new URL(location);
+      const state = url.searchParams.get("state")!;
+      const decoded = jwt.verify(state, TEST_JWT_SECRET) as jwt.JwtPayload;
+      expect(decoded.nonce).toBeDefined();
+      expect(decoded.exp).toBeGreaterThan(Date.now() / 1000);
+    });
+
+    it("returns 404 when feishuAuth is not configured", async () => {
+      await startServer(NO_FEISHU_CONFIG);
+      const res = await fetch(`${baseUrl}/api/auth/feishu/authorize`, { redirect: "manual" });
+      expect(res.status).toBe(404);
+    });
+  });
+
+  describe("GET /api/auth/feishu/callback", () => {
+    it("rejects missing state", async () => {
+      await startServer(FEISHU_CONFIG);
+      const res = await fetch(`${baseUrl}/api/auth/feishu/callback?code=test_code`, { redirect: "manual" });
+      expect(res.status).toBe(400);
+      const html = await res.text();
+      expect(html).toContain("Missing state");
+    });
+
+    it("rejects invalid/expired state", async () => {
+      await startServer(FEISHU_CONFIG);
+      const res = await fetch(`${baseUrl}/api/auth/feishu/callback?code=test_code&state=garbage`, { redirect: "manual" });
+      expect(res.status).toBe(400);
+      const html = await res.text();
+      expect(html).toContain("Invalid state");
+    });
+
+    it("rejects expired state JWT", async () => {
+      await startServer(FEISHU_CONFIG);
+      // Create an already-expired state JWT
+      const expiredState = jwt.sign({ nonce: "x" }, TEST_JWT_SECRET, { expiresIn: "0s" });
+      // Wait a tick for it to truly expire
+      await new Promise((r) => setTimeout(r, 100));
+      const res = await fetch(
+        `${baseUrl}/api/auth/feishu/callback?code=test_code&state=${expiredState}`,
+        { redirect: "manual" },
+      );
+      expect(res.status).toBe(400);
+      const html = await res.text();
+      expect(html).toContain("Invalid state");
+    });
+
+    it("rejects missing code", async () => {
+      await startServer(FEISHU_CONFIG);
+      const state = jwt.sign({ nonce: "test" }, TEST_JWT_SECRET, { expiresIn: "5m" });
+      const res = await fetch(
+        `${baseUrl}/api/auth/feishu/callback?state=${state}`,
+        { redirect: "manual" },
+      );
+      expect(res.status).toBe(400);
+      const html = await res.text();
+      expect(html).toContain("Missing code");
+    });
+
+    it("rejects Feishu error parameter", async () => {
+      await startServer(FEISHU_CONFIG);
+      const res = await fetch(
+        `${baseUrl}/api/auth/feishu/callback?error=access_denied`,
+        { redirect: "manual" },
+      );
+      expect(res.status).toBe(400);
+      const html = await res.text();
+      expect(html).toContain("access_denied");
+    });
+
+    it("handles valid state + code with mocked Feishu APIs", async () => {
+      await startServer({
+        ...FEISHU_CONFIG,
+        feishuAuth: {
+          ...FEISHU_CONFIG.feishuAuth!,
+          allowedUsers: [], // allow all
+        },
+      });
+
+      const state = jwt.sign({ nonce: "test" }, TEST_JWT_SECRET, { expiresIn: "5m" });
+
+      // Mock global fetch for Feishu API calls
+      const originalFetch = globalThis.fetch;
+      let fetchCallCount = 0;
+      globalThis.fetch = ((input: string | URL | Request, init?: RequestInit) => {
+        const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+        fetchCallCount++;
+        if (url.includes("/authen/v2/oauth/token")) {
+          return Promise.resolve(new Response(
+            JSON.stringify({ code: 0, access_token: "mock_user_token" }),
+            { headers: { "Content-Type": "application/json" } },
+          ));
+        }
+        if (url.includes("/authen/v1/user_info")) {
+          return Promise.resolve(new Response(
+            JSON.stringify({
+              code: 0,
+              data: {
+                open_id: "ou_test123",
+                name: "Test User",
+                email: "test@example.com",
+                avatar_url: "https://avatar.example.com/test.jpg",
+              },
+            }),
+            { headers: { "Content-Type": "application/json" } },
+          ));
+        }
+        // Fall through to real fetch for non-Feishu requests
+        return originalFetch(input, init);
+      }) as typeof fetch;
+
+      try {
+        const res = await fetch(
+          `${baseUrl}/api/auth/feishu/callback?code=test_code&state=${state}`,
+          { redirect: "manual" },
+        );
+        expect(res.status).toBe(200);
+        const html = await res.text();
+        // Should be the success HTML with localStorage write
+        expect(html).toContain("localStorage.setItem");
+        expect(html).toContain("zhiliao_token");
+
+        // Extract token from HTML and verify
+        const tokenMatch = html.match(/"([eyJ][^"]+)"/);
+        expect(tokenMatch).toBeTruthy();
+        const token = tokenMatch![1];
+        const decoded = jwt.verify(token, TEST_JWT_SECRET) as jwt.JwtPayload;
+        expect(decoded.sub).toBe("ou_test123");
+        expect(decoded.name).toBe("Test User");
+        expect(decoded.auth_method).toBe("feishu");
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+    });
+
+    it("rejects user not in allowlist", async () => {
+      await startServer({
+        ...FEISHU_CONFIG,
+        feishuAuth: {
+          ...FEISHU_CONFIG.feishuAuth!,
+          allowedUsers: ["ou_allowed"],
+        },
+      });
+
+      const state = jwt.sign({ nonce: "test" }, TEST_JWT_SECRET, { expiresIn: "5m" });
+      const originalFetch = globalThis.fetch;
+      globalThis.fetch = ((input: string | URL | Request, init?: RequestInit) => {
+        const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+        if (url.includes("/authen/v2/oauth/token")) {
+          return Promise.resolve(new Response(
+            JSON.stringify({ code: 0, access_token: "mock_user_token" }),
+            { headers: { "Content-Type": "application/json" } },
+          ));
+        }
+        if (url.includes("/authen/v1/user_info")) {
+          return Promise.resolve(new Response(
+            JSON.stringify({ code: 0, data: { open_id: "ou_blocked", name: "Blocked" } }),
+            { headers: { "Content-Type": "application/json" } },
+          ));
+        }
+        return originalFetch(input, init);
+      }) as typeof fetch;
+
+      try {
+        const res = await fetch(
+          `${baseUrl}/api/auth/feishu/callback?code=test_code&state=${state}`,
+          { redirect: "manual" },
+        );
+        expect(res.status).toBe(403);
+        const html = await res.text();
+        expect(html).toContain("Access denied");
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+    });
+
+    it("allows user in allowlist", async () => {
+      await startServer({
+        ...FEISHU_CONFIG,
+        feishuAuth: {
+          ...FEISHU_CONFIG.feishuAuth!,
+          allowedUsers: ["ou_allowed"],
+        },
+      });
+
+      const state = jwt.sign({ nonce: "test" }, TEST_JWT_SECRET, { expiresIn: "5m" });
+      const originalFetch = globalThis.fetch;
+      globalThis.fetch = ((input: string | URL | Request, init?: RequestInit) => {
+        const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+        if (url.includes("/authen/v2/oauth/token")) {
+          return Promise.resolve(new Response(
+            JSON.stringify({ code: 0, access_token: "mock_user_token" }),
+            { headers: { "Content-Type": "application/json" } },
+          ));
+        }
+        if (url.includes("/authen/v1/user_info")) {
+          return Promise.resolve(new Response(
+            JSON.stringify({ code: 0, data: { open_id: "ou_allowed", name: "Allowed" } }),
+            { headers: { "Content-Type": "application/json" } },
+          ));
+        }
+        return originalFetch(input, init);
+      }) as typeof fetch;
+
+      try {
+        const res = await fetch(
+          `${baseUrl}/api/auth/feishu/callback?code=test_code&state=${state}`,
+          { redirect: "manual" },
+        );
+        expect(res.status).toBe(200);
+        const html = await res.text();
+        expect(html).toContain("localStorage.setItem");
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+    });
+
+    it("handles Feishu token exchange failure", async () => {
+      await startServer(FEISHU_CONFIG);
+      const state = jwt.sign({ nonce: "test" }, TEST_JWT_SECRET, { expiresIn: "5m" });
+      const originalFetch = globalThis.fetch;
+      globalThis.fetch = ((input: string | URL | Request, init?: RequestInit) => {
+        const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+        if (url.includes("/authen/v2/oauth/token")) {
+          return Promise.resolve(new Response(
+            JSON.stringify({ code: 400, msg: "invalid code" }),
+            { headers: { "Content-Type": "application/json" } },
+          ));
+        }
+        return originalFetch(input, init);
+      }) as typeof fetch;
+
+      try {
+        const res = await fetch(
+          `${baseUrl}/api/auth/feishu/callback?code=bad_code&state=${state}`,
+          { redirect: "manual" },
+        );
+        expect(res.status).toBe(502);
+        const html = await res.text();
+        expect(html).toContain("Token exchange failed");
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+    });
+
+    it("falls back to open_id when user_id_field is empty", async () => {
+      await startServer({
+        ...FEISHU_CONFIG,
+        feishuAuth: {
+          ...FEISHU_CONFIG.feishuAuth!,
+          userIdField: "email",
+          allowedUsers: [],
+        },
+      });
+
+      const state = jwt.sign({ nonce: "test" }, TEST_JWT_SECRET, { expiresIn: "5m" });
+      const originalFetch = globalThis.fetch;
+      globalThis.fetch = ((input: string | URL | Request, init?: RequestInit) => {
+        const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+        if (url.includes("/authen/v2/oauth/token")) {
+          return Promise.resolve(new Response(
+            JSON.stringify({ code: 0, access_token: "mock_user_token" }),
+            { headers: { "Content-Type": "application/json" } },
+          ));
+        }
+        if (url.includes("/authen/v1/user_info")) {
+          // Email is empty — should fall back to open_id
+          return Promise.resolve(new Response(
+            JSON.stringify({ code: 0, data: { open_id: "ou_fallback", name: "Fallback User", email: "" } }),
+            { headers: { "Content-Type": "application/json" } },
+          ));
+        }
+        return originalFetch(input, init);
+      }) as typeof fetch;
+
+      try {
+        const res = await fetch(
+          `${baseUrl}/api/auth/feishu/callback?code=test_code&state=${state}`,
+          { redirect: "manual" },
+        );
+        expect(res.status).toBe(200);
+        const html = await res.text();
+        const tokenMatch = html.match(/"([eyJ][^"]+)"/);
+        const token = tokenMatch![1];
+        const decoded = jwt.verify(token, TEST_JWT_SECRET) as jwt.JwtPayload;
+        expect(decoded.sub).toBe("ou_fallback"); // fell back from email
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+    });
+  });
+});

@@ -16,7 +16,7 @@
 </head>
 <body>
   <!-- Login Screen -->
-  <div id="login-screen" class="screen">
+  <div id="login-screen" class="screen" hidden>
     <div class="login-box">
       <h1 data-i18n="app.title">Zhiliao</h1>
       <p class="subtitle" data-i18n="app.subtitle">Zhiliao WebChat</p>
@@ -25,6 +25,13 @@
         <button type="submit" data-i18n="login.submit">Sign In</button>
         <p id="login-error" class="error" hidden></p>
       </form>
+      <div id="feishu-auth-section" hidden>
+        <div class="login-divider"><span data-i18n="login.or">or</span></div>
+        <button id="feishu-login-btn" type="button" class="feishu-login-btn">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 15h-2v-6h2v6zm4 0h-2v-6h2v6zm-2-8c-.55 0-1-.45-1-1s.45-1 1-1 1 .45 1 1-.45 1-1 1z"/></svg>
+          <span data-i18n="login.feishu">Sign in with Feishu</span>
+        </button>
+      </div>
       <button id="login-lang-toggle" class="login-lang-btn" title="Switch language">EN</button>
     </div>
   </div>

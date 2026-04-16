@@ -41,6 +41,15 @@ var App = (function () {
 
     $loginForm.addEventListener("submit", _handleLogin);
 
+    // Wire up Feishu login button
+    var feishuBtn = document.getElementById("feishu-login-btn");
+    if (feishuBtn) {
+      feishuBtn.addEventListener("click", function () {
+        Auth.feishuLogin();
+      });
+    }
+    Auth.checkFeishuEnabled();
+
     // WS auth expiry handler
     WS.on("auth_expired", function () {
       _showLogin();

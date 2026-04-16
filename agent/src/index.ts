@@ -162,7 +162,18 @@ async function main() {
     const port = config.webchat.port ?? 8080;
 
     webchatServer = createWebChatServer(
-      { port, passwordHash, jwtSecret },
+      {
+        port,
+        passwordHash,
+        jwtSecret,
+        feishuAuth: config.webchat.feishu_auth ? {
+          appId: config.feishu.app_id,
+          appSecret: config.feishu.app_secret,
+          redirectUri: config.webchat.feishu_auth.redirect_uri,
+          userIdField: config.webchat.feishu_auth.user_id_field || "open_id",
+          allowedUsers: config.webchat.feishu_auth.allowed_users || [],
+        } : undefined,
+      },
       channelRouter,
       agent,
       toolRegistry,

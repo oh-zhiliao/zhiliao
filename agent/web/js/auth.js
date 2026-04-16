@@ -63,7 +63,9 @@ var Auth = (function () {
     try {
       var parts = token.split(".");
       if (parts.length !== 3) return true;
-      var payload = JSON.parse(atob(parts[1]));
+      // JWT uses base64url encoding — convert to standard base64 for atob()
+      var b64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+      var payload = JSON.parse(atob(b64));
       if (!payload.exp) return false;
       // exp is in seconds, Date.now() is milliseconds
       return Date.now() >= payload.exp * 1000;
@@ -72,10 +74,35 @@ var Auth = (function () {
     }
   }
 
+  /**
+   * Redirect to Feishu OAuth authorize endpoint.
+   */
+  function feishuLogin() {
+    window.location.href = "/api/auth/feishu/authorize";
+  }
+
+  /**
+   * Check if Feishu auth is available and show/hide the button.
+   */
+  async function checkFeishuEnabled() {
+    try {
+      var resp = await fetch("/api/auth/feishu/config");
+      var data = await resp.json();
+      var section = document.getElementById("feishu-auth-section");
+      if (section) {
+        section.hidden = !data.enabled;
+      }
+    } catch (e) {
+      // keep hidden on error
+    }
+  }
+
   return {
     login: login,
     getToken: getToken,
     logout: logout,
     isAuthenticated: isAuthenticated,
+    feishuLogin: feishuLogin,
+    checkFeishuEnabled: checkFeishuEnabled,
   };
 })();

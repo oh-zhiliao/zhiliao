@@ -35,6 +35,11 @@ export interface ZhiliaoConfig {
     port?: number;        // default 8080
     password?: string;    // bcrypt hash or plaintext (auto-hashed on first run)
     jwt_secret?: string;  // auto-generated if "auto" or missing
+    feishu_auth?: {
+      redirect_uri: string;                              // OAuth callback URL
+      user_id_field?: "open_id" | "email" | "user_id";  // default "open_id"
+      allowed_users?: string[];                          // empty/absent = allow all
+    };
   };
 }
 

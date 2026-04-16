@@ -74,6 +74,8 @@
   --shadow-md:       0 2px 10px rgba(0,0,0,0.35);
   --shadow-lg:       0 4px 24px rgba(0,0,0,0.45);
 }
+[data-theme="dark"] .feishu-login-btn { background: #4a7dff; }
+[data-theme="dark"] .feishu-login-btn:hover { background: #3370ff; }
 
 /* ============================================================
    Reset & Base
@@ -221,6 +223,45 @@ body,
   color: var(--text-primary);
   border-color: var(--text-tertiary);
 }
+
+/* Login divider */
+.login-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 20px 0 16px;
+  color: var(--text-tertiary);
+  font-size: 0.8rem;
+}
+.login-divider::before,
+.login-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+/* Feishu login button */
+.feishu-login-btn {
+  width: 100%;
+  padding: 12px;
+  background: #3370ff;
+  color: #ffffff;
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: 0.95rem;
+  font-weight: 600;
+  font-family: var(--font-body);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition: background 0.2s, transform 0.1s;
+}
+.feishu-login-btn:hover { background: #245bdb; }
+.feishu-login-btn:active { transform: scale(0.98); }
+.feishu-login-btn svg { width: 18px; height: 18px; flex-shrink: 0; }
 
 /* ============================================================
    Chat Screen Layout
