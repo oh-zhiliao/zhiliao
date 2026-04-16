@@ -389,7 +389,11 @@ export class AgentInvoker {
           throw err;
         }
 
-        const response = await this.callLLMWithRetry(entry.history, toolDefs, effectivePrompt);
+        // Use streaming LLM call — text deltas are forwarded via callback
+        const response = await this.callLLMStreamingWithRetry(
+          entry.history, toolDefs, effectivePrompt,
+          callbacks.onTextDelta, signal,
+        );
         entry.totalInputTokens += response.inputTokens;
         entry.totalOutputTokens += response.outputTokens;
 
@@ -405,13 +409,9 @@ export class AgentInvoker {
         console.log(`[${sessionId}] streaming iter=${totalIterations} tokens=${response.inputTokens}+${response.outputTokens} tools=${toolCalls.map(c => c.name).join(",") || "none"} stop=${response.stopReason}`);
 
         if (toolCalls.length === 0 || response.stopReason !== "tool_use") {
-          // No tool calls — done
+          // No tool calls — done (text deltas already sent via streaming callback)
           finalText = textParts.join("\n").trim();
           entry.history.push(response.rawAssistantContent);
-          // Fire text delta with the full text (v1: not incremental)
-          if (finalText) {
-            callbacks.onTextDelta?.(finalText);
-          }
           break;
         }
 
@@ -449,7 +449,10 @@ export class AgentInvoker {
             throw err;
           }
 
-          const finalResponse = await this.callLLMWithRetry(entry.history, [], effectivePrompt);
+          const finalResponse = await this.callLLMStreamingWithRetry(
+            entry.history, [], effectivePrompt,
+            callbacks.onTextDelta, signal,
+          );
           entry.totalInputTokens += finalResponse.inputTokens;
           entry.totalOutputTokens += finalResponse.outputTokens;
           const finalParts = finalResponse.content
@@ -457,9 +460,6 @@ export class AgentInvoker {
             .map((b) => b.text);
           finalText = finalParts.join("\n") || "(无法生成回复，请重试)";
           entry.history.push(finalResponse.rawAssistantContent);
-          if (finalText) {
-            callbacks.onTextDelta?.(finalText);
-          }
           break;
         }
       }
@@ -619,6 +619,289 @@ export class AgentInvoker {
         if (attempt < LLM_MAX_RETRIES && AgentInvoker.isTransientError(err)) {
           const delay = LLM_RETRY_DELAYS[attempt] ?? 3000;
           console.warn(`LLM call failed (attempt ${attempt + 1}/${LLM_MAX_RETRIES + 1}): ${err.message}, retrying in ${delay}ms`);
+          await new Promise((r) => setTimeout(r, delay));
+          continue;
+        }
+        throw err;
+      }
+    }
+    throw lastError; // unreachable, but satisfies TypeScript
+  }
+
+  // ---- Streaming LLM calls ----
+
+  private async callLLMStreaming(
+    history: any[],
+    toolDefs: Array<{ name: string; description: string; input_schema: Record<string, unknown> }>,
+    systemPrompt: string,
+    onTextDelta?: (delta: string) => void,
+    signal?: AbortSignal,
+  ): Promise<LLMResponse> {
+    if (this.isOpenAI) {
+      return this.callOpenAIStreaming(history, toolDefs, systemPrompt, onTextDelta, signal);
+    }
+    return this.callAnthropicStreaming(history, toolDefs, systemPrompt, onTextDelta, signal);
+  }
+
+  private async callAnthropicStreaming(
+    history: any[],
+    toolDefs: Array<{ name: string; description: string; input_schema: Record<string, unknown> }>,
+    systemPrompt: string,
+    onTextDelta?: (delta: string) => void,
+    signal?: AbortSignal,
+  ): Promise<LLMResponse> {
+    const tools = toolDefs.map((t) => ({
+      name: t.name,
+      description: t.description,
+      input_schema: t.input_schema as Anthropic.Tool.InputSchema,
+    }));
+
+    const createParams: Anthropic.MessageCreateParams = {
+      model: this.config.model,
+      max_tokens: 4096,
+      system: systemPrompt,
+      messages: history,
+      stream: true,
+    };
+    if (tools.length > 0) {
+      createParams.tools = tools;
+    }
+
+    const timeoutSignal = AbortSignal.timeout(LLM_TIMEOUT_MS);
+    const effectiveSignal = signal
+      ? AbortSignal.any([signal, timeoutSignal])
+      : timeoutSignal;
+
+    const stream = await this.anthropicClient!.messages.create(createParams, {
+      signal: effectiveSignal,
+    });
+
+    // Accumulate blocks from stream events
+    const blocks: Array<{ type: string; text?: string; id?: string; name?: string; inputJson?: string }> = [];
+    let inputTokens = 0;
+    let outputTokens = 0;
+    let stopReason = "";
+    let hasToolUse = false;
+
+    for await (const event of stream as AsyncIterable<any>) {
+      if (signal?.aborted) {
+        const err = new Error("Aborted");
+        err.name = "AbortError";
+        throw err;
+      }
+
+      switch (event.type) {
+        case "message_start":
+          inputTokens = event.message?.usage?.input_tokens ?? 0;
+          break;
+        case "content_block_start": {
+          const block = event.content_block;
+          if (block.type === "text") {
+            blocks.push({ type: "text", text: "" });
+          } else if (block.type === "tool_use") {
+            hasToolUse = true;
+            blocks.push({ type: "tool_use", id: block.id, name: block.name, inputJson: "" });
+          }
+          break;
+        }
+        case "content_block_delta": {
+          const delta = event.delta;
+          const currentBlock = blocks[blocks.length - 1];
+          if (delta.type === "text_delta" && currentBlock?.type === "text") {
+            currentBlock.text = (currentBlock.text ?? "") + delta.text;
+            // Only forward text deltas if there are no tool_use blocks
+            // (intermediate text between tool calls is not useful to stream)
+            if (!hasToolUse && onTextDelta) {
+              onTextDelta(delta.text);
+            }
+          } else if (delta.type === "input_json_delta" && currentBlock?.type === "tool_use") {
+            currentBlock.inputJson = (currentBlock.inputJson ?? "") + delta.partial_json;
+          }
+          break;
+        }
+        case "message_delta":
+          outputTokens = event.usage?.output_tokens ?? 0;
+          stopReason = event.delta?.stop_reason ?? "";
+          break;
+      }
+    }
+
+    // Reconstruct content blocks and rawAssistantContent
+    const content: LLMContentBlock[] = [];
+    const rawContent: any[] = [];
+
+    for (const block of blocks) {
+      if (block.type === "text") {
+        content.push({ type: "text" as const, text: block.text ?? "" });
+        rawContent.push({ type: "text", text: block.text ?? "" });
+      } else if (block.type === "tool_use") {
+        let input: Record<string, any> = {};
+        try { input = JSON.parse(block.inputJson || "{}"); } catch { /* empty */ }
+        content.push({ type: "tool_use" as const, id: block.id!, name: block.name!, input });
+        rawContent.push({ type: "tool_use", id: block.id, name: block.name, input });
+      }
+    }
+
+    return {
+      content,
+      stopReason: stopReason === "tool_use" ? "tool_use" : "end_turn",
+      inputTokens,
+      outputTokens,
+      rawAssistantContent: { role: "assistant", content: rawContent },
+    };
+  }
+
+  private async callOpenAIStreaming(
+    history: any[],
+    toolDefs: Array<{ name: string; description: string; input_schema: Record<string, unknown> }>,
+    systemPrompt: string,
+    onTextDelta?: (delta: string) => void,
+    signal?: AbortSignal,
+  ): Promise<LLMResponse> {
+    const tools: OpenAI.ChatCompletionTool[] = toolDefs.map((t) => ({
+      type: "function" as const,
+      function: {
+        name: t.name,
+        description: t.description,
+        parameters: t.input_schema,
+      },
+    }));
+
+    const messages: OpenAI.ChatCompletionMessageParam[] = [
+      { role: "system", content: systemPrompt },
+      ...history,
+    ];
+
+    const params: OpenAI.ChatCompletionCreateParamsStreaming = {
+      model: this.config.model,
+      max_tokens: 4096,
+      messages,
+      stream: true,
+      stream_options: { include_usage: true },
+    };
+    if (tools.length > 0) {
+      params.tools = tools;
+    }
+
+    const timeoutSignal = AbortSignal.timeout(LLM_TIMEOUT_MS);
+    const effectiveSignal = signal
+      ? AbortSignal.any([signal, timeoutSignal])
+      : timeoutSignal;
+
+    const stream = await this.openaiClient!.chat.completions.create(params, {
+      signal: effectiveSignal,
+    });
+
+    let textContent = "";
+    let finishReason = "";
+    let inputTokens = 0;
+    let outputTokens = 0;
+    const toolCallMap = new Map<number, { id: string; name: string; arguments: string }>();
+    let hasToolCalls = false;
+
+    for await (const chunk of stream) {
+      if (signal?.aborted) {
+        const err = new Error("Aborted");
+        err.name = "AbortError";
+        throw err;
+      }
+
+      // Usage comes in the final chunk (with choices=[])
+      if (chunk.usage) {
+        inputTokens = chunk.usage.prompt_tokens ?? 0;
+        outputTokens = chunk.usage.completion_tokens ?? 0;
+      }
+
+      const choice = chunk.choices?.[0];
+      if (!choice) continue;
+
+      if (choice.finish_reason) {
+        finishReason = choice.finish_reason;
+      }
+
+      const delta = choice.delta;
+      if (!delta) continue;
+
+      // Text content
+      if (delta.content) {
+        textContent += delta.content;
+        if (!hasToolCalls && onTextDelta) {
+          onTextDelta(delta.content);
+        }
+      }
+
+      // Tool calls
+      if (delta.tool_calls) {
+        hasToolCalls = true;
+        for (const tc of delta.tool_calls) {
+          const idx = tc.index;
+          if (!toolCallMap.has(idx)) {
+            toolCallMap.set(idx, { id: tc.id ?? "", name: tc.function?.name ?? "", arguments: "" });
+          }
+          const existing = toolCallMap.get(idx)!;
+          if (tc.id) existing.id = tc.id;
+          if (tc.function?.name) existing.name = tc.function.name;
+          if (tc.function?.arguments) existing.arguments += tc.function.arguments;
+        }
+      }
+    }
+
+    // Build content blocks
+    const content: LLMContentBlock[] = [];
+    if (textContent) {
+      content.push({ type: "text", text: textContent });
+    }
+
+    const toolCallsArray: OpenAI.Chat.Completions.ChatCompletionMessageToolCall[] = [];
+    for (const [, tc] of [...toolCallMap.entries()].sort((a, b) => a[0] - b[0])) {
+      let args: Record<string, any> = {};
+      try { args = JSON.parse(tc.arguments); } catch { /* empty */ }
+      content.push({
+        type: "tool_use",
+        id: tc.id,
+        name: tc.name,
+        input: args,
+      });
+      toolCallsArray.push({
+        id: tc.id,
+        type: "function",
+        function: { name: tc.name, arguments: tc.arguments },
+      });
+    }
+
+    const stopReason = finishReason === "tool_calls" ? "tool_use" : "end_turn";
+
+    return {
+      content,
+      stopReason,
+      inputTokens,
+      outputTokens,
+      rawAssistantContent: {
+        role: "assistant" as const,
+        content: textContent || null,
+        tool_calls: toolCallsArray.length > 0 ? toolCallsArray : undefined,
+      },
+    };
+  }
+
+  private async callLLMStreamingWithRetry(
+    history: any[],
+    toolDefs: Array<{ name: string; description: string; input_schema: Record<string, unknown> }>,
+    systemPrompt: string,
+    onTextDelta?: (delta: string) => void,
+    signal?: AbortSignal,
+  ): Promise<LLMResponse> {
+    let lastError: any;
+    for (let attempt = 0; attempt <= LLM_MAX_RETRIES; attempt++) {
+      try {
+        return await this.callLLMStreaming(history, toolDefs, systemPrompt, onTextDelta, signal);
+      } catch (err: any) {
+        lastError = err;
+        // Don't retry user-initiated aborts
+        if (err.name === "AbortError") throw err;
+        if (attempt < LLM_MAX_RETRIES && AgentInvoker.isTransientError(err)) {
+          const delay = LLM_RETRY_DELAYS[attempt] ?? 3000;
+          console.warn(`LLM streaming call failed (attempt ${attempt + 1}/${LLM_MAX_RETRIES + 1}): ${err.message}, retrying in ${delay}ms`);
           await new Promise((r) => setTimeout(r, delay));
           continue;
         }

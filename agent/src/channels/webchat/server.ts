@@ -110,13 +110,28 @@ export function createWebChatServer(
 
         try {
           const text = msg.content.trim();
-          if (text.startsWith("/")) {
+
+          // Handle /debug prefix (not a command — it's a mode flag)
+          let question = text;
+          if (text.startsWith("/debug2 ") || text.startsWith("/debug ")) {
+            question = text.replace(/^\/debug2?\s+/, "").trim();
+            if (!question) {
+              ws.send(JSON.stringify({ type: "message_complete", sessionId, content: "用法: /debug <你的问题>" }));
+              activeStreams.delete(sessionId);
+              channel.unregisterSocket(sessionId);
+              return;
+            }
+            // Send session key info (webchat already shows tool calls via streaming)
+            ws.send(JSON.stringify({ type: "message_complete", sessionId, content: `[debug] session=webchat:${sessionId}` }));
+          }
+
+          if (question.startsWith("/")) {
             // Commands go through non-streaming path
-            await router.handleMessage(channel, ctx, text);
+            await router.handleMessage(channel, ctx, question);
           } else {
             // Questions go through streaming path
             await agent.askStreaming(
-              text,
+              question,
               `webchat:${sessionId}`,
               {
                 onTextDelta: (delta) => {
