@@ -30,3 +30,10 @@ llm:
 memo:
   enabled: true
   url: "http://127.0.0.1:8090"              # memo service URL
+
+# WebChat — browser-based chat UI (optional)
+# webchat:
+#   enabled: true
+#   port: 8080
+#   password: "changeme"    # bcrypt-hashed on first startup
+#   jwt_secret: "auto"      # auto-generated if "auto"
