@@ -5,7 +5,6 @@ var Sidebar = (function () {
   var $sessionList = null;
   var $newChatBtn = null;
   var $purgeBtn = null;
-  var $logoutBtn = null;
   var $sidebarToggle = null;
   var $sidebar = null;
   var _sidebarOverlay = null;
@@ -14,7 +13,6 @@ var Sidebar = (function () {
     $sessionList = document.getElementById("session-list");
     $newChatBtn = document.getElementById("new-chat-btn");
     $purgeBtn = document.getElementById("purge-btn");
-    $logoutBtn = document.getElementById("logout-btn");
     $sidebarToggle = document.getElementById("sidebar-toggle");
     $sidebar = document.getElementById("sidebar");
 
@@ -23,13 +21,16 @@ var Sidebar = (function () {
     _sidebarOverlay.id = "sidebar-overlay";
     document.getElementById("chat-screen").appendChild(_sidebarOverlay);
 
+    var $sidebarClose = document.getElementById("sidebar-close");
+
     $newChatBtn.addEventListener("click", _newChat);
     $purgeBtn.addEventListener("click", _purgeAll);
-    $logoutBtn.addEventListener("click", function () {
-      App.logout();
-    });
     $sidebarToggle.addEventListener("click", _toggleSidebar);
     _sidebarOverlay.addEventListener("click", _closeSidebar);
+    if ($sidebarClose) $sidebarClose.addEventListener("click", _closeSidebar);
+
+    // Re-render on language change
+    I18n.onChange(function () { refresh(); });
 
     refresh();
   }
@@ -47,7 +48,7 @@ var Sidebar = (function () {
       empty.className = "welcome-placeholder";
       empty.style.padding = "24px 12px";
       empty.style.fontSize = "0.85rem";
-      empty.textContent = "No conversations yet";
+      empty.textContent = I18n.t("sidebar.empty");
       $sessionList.appendChild(empty);
       return;
     }
@@ -83,7 +84,7 @@ var Sidebar = (function () {
   }
 
   function _purgeAll() {
-    if (!confirm("Delete all conversations? This cannot be undone.")) return;
+    if (!confirm(I18n.t("sidebar.confirmPurge"))) return;
     Store.purgeAll();
     Chat.clearMessages();
     refresh();
@@ -104,7 +105,7 @@ var Sidebar = (function () {
 
     var renameBtn = document.createElement("button");
     renameBtn.textContent = "\u270E"; // pencil
-    renameBtn.title = "Rename";
+    renameBtn.title = I18n.t("sidebar.rename");
     renameBtn.addEventListener("click", function (e) {
       e.stopPropagation();
       _renameSession(session.id);
@@ -113,7 +114,7 @@ var Sidebar = (function () {
     var deleteBtn = document.createElement("button");
     deleteBtn.className = "btn-delete";
     deleteBtn.textContent = "\u2715"; // x
-    deleteBtn.title = "Delete";
+    deleteBtn.title = I18n.t("sidebar.delete");
     deleteBtn.addEventListener("click", function (e) {
       e.stopPropagation();
       _deleteSession(session.id);
@@ -133,7 +134,7 @@ var Sidebar = (function () {
   function _renameSession(id) {
     var session = Store.getSession(id);
     if (!session) return;
-    var newTitle = prompt("Rename session:", session.title);
+    var newTitle = prompt(I18n.t("sidebar.renamePrompt"), session.title);
     if (newTitle !== null && newTitle.trim()) {
       Store.updateSession(id, { title: newTitle.trim() });
       if (Chat.getCurrentSessionId() === id) {
@@ -144,12 +145,11 @@ var Sidebar = (function () {
   }
 
   function _deleteSession(id) {
-    if (!confirm("Delete this conversation?")) return;
+    if (!confirm(I18n.t("sidebar.confirmDelete"))) return;
     var wasCurrent = Chat.getCurrentSessionId() === id;
     Store.deleteSession(id);
 
     if (wasCurrent) {
-      // Switch to most recent session or clear
       var sessions = Store.getSessions();
       if (sessions.length > 0) {
         Chat.loadSession(sessions[0].id);
@@ -176,9 +176,9 @@ var Sidebar = (function () {
       var label;
 
       if (key === todayStr) {
-        label = "Today";
+        label = I18n.t("sidebar.today");
       } else if (key === yesterdayStr) {
-        label = "Yesterday";
+        label = I18n.t("sidebar.yesterday");
       } else {
         label = key;
       }

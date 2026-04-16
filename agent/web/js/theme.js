@@ -28,6 +28,12 @@ var Theme = (function () {
     var iconDark = btn.querySelector(".icon-moon");
     if (iconLight) iconLight.style.display = isDark ? "none" : "block";
     if (iconDark) iconDark.style.display = isDark ? "block" : "none";
+
+    // Update text label in settings dropdown
+    var textEl = document.getElementById("theme-toggle-text");
+    if (textEl) {
+      textEl.textContent = isDark ? "Dark" : "Light";
+    }
   }
 
   /** Call once after DOM is ready. */

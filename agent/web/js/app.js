@@ -22,15 +22,10 @@ var App = (function () {
     Theme.init();
     I18n.init();
 
-    // Wire up theme toggle
-    var themeBtn = document.getElementById("theme-toggle");
-    if (themeBtn) themeBtn.addEventListener("click", Theme.toggle);
+    // Wire up settings dropdown
+    _initSettingsDropdown();
 
-    // Wire up language toggle (chat header)
-    var langBtn = document.getElementById("lang-toggle");
-    if (langBtn) langBtn.addEventListener("click", I18n.toggle);
-
-    // Wire up language toggle (login page)
+    // Wire up login page language toggle
     var loginLangBtn = document.getElementById("login-lang-toggle");
     if (loginLangBtn) loginLangBtn.addEventListener("click", I18n.toggle);
 
@@ -66,6 +61,32 @@ var App = (function () {
     } else {
       _showLogin();
     }
+  }
+
+  function _initSettingsDropdown() {
+    var $settingsToggle = document.getElementById("settings-toggle");
+    var $settingsDropdown = document.getElementById("settings-dropdown");
+    var $langToggle = document.getElementById("lang-toggle");
+    var $themeToggle = document.getElementById("theme-toggle");
+    var $logoutBtn = document.getElementById("logout-btn");
+
+    if ($settingsToggle && $settingsDropdown) {
+      $settingsToggle.addEventListener("click", function (e) {
+        e.stopPropagation();
+        $settingsDropdown.classList.toggle("open");
+      });
+
+      // Close dropdown on outside click
+      document.addEventListener("click", function (e) {
+        if (!$settingsDropdown.contains(e.target) && e.target !== $settingsToggle) {
+          $settingsDropdown.classList.remove("open");
+        }
+      });
+    }
+
+    if ($langToggle) $langToggle.addEventListener("click", I18n.toggle);
+    if ($themeToggle) $themeToggle.addEventListener("click", Theme.toggle);
+    if ($logoutBtn) $logoutBtn.addEventListener("click", function () { App.logout(); });
   }
 
   function _updateConnectionStatus(connected) {

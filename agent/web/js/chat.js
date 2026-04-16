@@ -28,7 +28,22 @@ var Chat = (function () {
     // Auto-expanding textarea
     $input.addEventListener("input", _autoResize);
     $input.addEventListener("keydown", function (e) {
-      if (e.key === "Enter" && !e.shiftKey) {
+      if (e.key === "Enter") {
+        // Don't send during IME composition
+        if (e.isComposing || e.keyCode === 229) return;
+        // Ctrl+Enter / Alt+Enter → explicitly insert newline (browsers don't do it by default)
+        if (e.ctrlKey || e.altKey) {
+          e.preventDefault();
+          var start = $input.selectionStart;
+          var end = $input.selectionEnd;
+          $input.value = $input.value.substring(0, start) + "\n" + $input.value.substring(end);
+          $input.selectionStart = $input.selectionEnd = start + 1;
+          _autoResize();
+          return;
+        }
+        // Shift+Enter → default textarea behavior (newline)
+        if (e.shiftKey || e.metaKey) return;
+        // Plain Enter → send
         e.preventDefault();
         _handleSend();
       }
@@ -40,6 +55,16 @@ var Chat = (function () {
     WS.on("tool_end", _onToolEnd);
     WS.on("message_complete", _onMessageComplete);
     WS.on("error", _onError);
+
+    // WS disconnect during streaming → clean up stop button
+    WS.on("close", _onWsClose);
+
+    // Re-render welcome placeholder on language change
+    I18n.onChange(function () {
+      if (_currentSessionId && Store.getMessages(_currentSessionId).length === 0) {
+        _renderWelcome();
+      }
+    });
   }
 
   /**
@@ -53,7 +78,7 @@ var Chat = (function () {
     if (session) {
       $chatTitle.textContent = session.title;
     } else {
-      $chatTitle.textContent = "New Chat";
+      $chatTitle.textContent = I18n.t("chat.newChat");
     }
 
     _renderAllMessages();
@@ -70,8 +95,8 @@ var Chat = (function () {
   function clearMessages() {
     _currentSessionId = null;
     _cancelStreaming();
-    $messages.innerHTML = '<div class="welcome-placeholder">Start a new chat or select one from the sidebar</div>';
-    $chatTitle.textContent = "New Chat";
+    _renderWelcome();
+    $chatTitle.textContent = I18n.t("chat.defaultTitle");
   }
 
   // ---- Sending ----
@@ -135,6 +160,15 @@ var Chat = (function () {
       type: "stop",
       sessionId: _currentSessionId,
     });
+
+    // Finalize the streaming bubble with stopped indicator
+    if (_streamingMessageId) {
+      _finalizeStreamingBubble(_streamingContent || I18n.t("chat.manualStop"), true);
+      Store.updateMessage(_currentSessionId, _streamingMessageId, {
+        content: _streamingContent || I18n.t("chat.manualStop"),
+        tools: _streamingTools.slice(),
+      });
+    }
     _finishStreaming();
   }
 
@@ -177,7 +211,9 @@ var Chat = (function () {
     if (_streamingMessageId) {
       // Streaming was active: replace content with final filtered version
       _streamingContent = msg.content;
-      _updateStreamingBubble();
+
+      // Finalize the bubble — render content, remove streaming cursor
+      _finalizeStreamingBubble(_streamingContent, false);
 
       // Save final state
       Store.updateMessage(_currentSessionId, _streamingMessageId, {
@@ -198,27 +234,40 @@ var Chat = (function () {
     _scrollToBottom();
   }
 
+  function _onWsClose() {
+    if (!_isStreaming) return;
+    // WS died mid-stream — server can't send message_complete/error anymore.
+    if (_streamingMessageId) {
+      _finalizeStreamingBubble(_streamingContent || I18n.t("chat.connectionLost"), !_streamingContent);
+      Store.updateMessage(_currentSessionId, _streamingMessageId, {
+        content: _streamingContent || I18n.t("chat.connectionLost"),
+        tools: _streamingTools.slice(),
+      });
+    }
+    _finishStreaming();
+  }
+
   function _onError(msg) {
+    // Ignore stale errors after streaming already ended (e.g. abort errors arriving late)
+    if (!_isStreaming) return;
+
     if (msg.sessionId && msg.sessionId !== _currentSessionId) return;
 
     var errorText = msg.message || "An error occurred";
 
     if (_streamingMessageId) {
-      // Update the streaming message DOM to show error
       var msgEl = $messages.querySelector('[data-message-id="' + _streamingMessageId + '"]');
       if (msgEl) {
         msgEl.className = "message error";
         var bubble = msgEl.querySelector(".message-bubble");
         if (bubble) bubble.textContent = errorText;
       }
-      // Persist error state
       Store.updateMessage(_currentSessionId, _streamingMessageId, {
         role: "error",
         content: errorText,
       });
       _finishStreaming();
     } else if (_currentSessionId) {
-      // Standalone error, add as a new message
       var errorMsg = Store.addMessage(_currentSessionId, {
         role: "error",
         content: errorText,
@@ -234,13 +283,13 @@ var Chat = (function () {
   function _renderAllMessages() {
     $messages.innerHTML = "";
     if (!_currentSessionId) {
-      $messages.innerHTML = '<div class="welcome-placeholder">Start a new chat or select one from the sidebar</div>';
+      _renderWelcome();
       return;
     }
 
     var messages = Store.getMessages(_currentSessionId);
     if (messages.length === 0) {
-      $messages.innerHTML = '<div class="welcome-placeholder">Ask about your codebase...</div>';
+      _renderWelcome();
       return;
     }
 
@@ -250,9 +299,24 @@ var Chat = (function () {
     _scrollToBottom();
   }
 
+  function _renderWelcome() {
+    $messages.innerHTML = "";
+    var wrap = document.createElement("div");
+    wrap.className = "welcome-placeholder";
+    var title = document.createElement("div");
+    title.className = "welcome-title";
+    title.textContent = I18n.t("chat.welcome");
+    var hint = document.createElement("div");
+    hint.className = "welcome-hint";
+    hint.textContent = I18n.t("chat.welcomeHint");
+    wrap.appendChild(title);
+    wrap.appendChild(hint);
+    $messages.appendChild(wrap);
+  }
+
   /**
    * @param {object} msg - message data
-   * @param {boolean} animate - whether to apply fade-in animation
+   * @param {boolean} animate - whether to apply entrance animation
    */
   function _appendMessageEl(msg, animate) {
     // Remove welcome placeholder if present
@@ -261,19 +325,14 @@ var Chat = (function () {
 
     var el = document.createElement("div");
     el.className = "message " + msg.role;
-    if (animate) {
-      el.classList.add("fade-in");
-    }
+    if (!animate) el.style.animation = "none";
     el.dataset.messageId = msg.id;
 
     if (msg.role === "bot" || msg.role === "error") {
-      // Tool chips container
       if (msg.tools && msg.tools.length > 0) {
         var chipsEl = document.createElement("div");
         chipsEl.className = "tool-chips";
-        msg.tools.forEach(function (tool) {
-          chipsEl.appendChild(_createToolChip(tool));
-        });
+        _renderToolChipsInto(chipsEl, msg.tools);
         el.appendChild(chipsEl);
       }
     }
@@ -287,6 +346,12 @@ var Chat = (function () {
       if (msg.content) {
         Markdown.renderInto(bubble, msg.content);
         _addCodeBlockLabels(bubble);
+      } else {
+        // Loading indicator until first token arrives
+        var dots = document.createElement("div");
+        dots.className = "loading-dots";
+        dots.innerHTML = "<span></span><span></span><span></span>";
+        bubble.appendChild(dots);
       }
     } else if (msg.role === "error") {
       bubble.textContent = msg.content;
@@ -296,9 +361,6 @@ var Chat = (function () {
     $messages.appendChild(el);
   }
 
-  /**
-   * Detect language in code blocks and add a label bar above them.
-   */
   function _addCodeBlockLabels(container) {
     container.querySelectorAll("pre code").forEach(function (codeEl) {
       var lang = _detectCodeLanguage(codeEl);
@@ -314,11 +376,7 @@ var Chat = (function () {
     });
   }
 
-  /**
-   * Detect language from hljs class names on a <code> element.
-   */
   function _detectCodeLanguage(codeEl) {
-    // Check class names like "language-js", "hljs language-javascript", etc.
     var classes = codeEl.className.split(/\s+/);
     for (var i = 0; i < classes.length; i++) {
       var match = classes[i].match(/^language-(.+)$/);
@@ -339,11 +397,7 @@ var Chat = (function () {
     icon.textContent = tool.status === "active" ? "\u27F3" : "\u2713";
 
     var label = document.createElement("span");
-    // Show short tool name (remove plugin prefix for display)
-    var displayName = tool.name;
-    var dotIdx = displayName.indexOf(".");
-    if (dotIdx > -1) displayName = displayName.slice(dotIdx + 1);
-    label.textContent = displayName;
+    label.textContent = tool.name;
     if (tool.summary) {
       chip.title = tool.summary;
     }
@@ -353,16 +407,34 @@ var Chat = (function () {
     return chip;
   }
 
+  /**
+   * Update streaming bubble: render content + append streaming cursor.
+   */
   function _updateStreamingBubble() {
     if (!_streamingMessageId) return;
     var msgEl = $messages.querySelector('[data-message-id="' + _streamingMessageId + '"]');
     if (!msgEl) return;
 
     var bubble = msgEl.querySelector(".message-bubble");
-    if (bubble && _streamingContent) {
-      Markdown.renderInto(bubble, _streamingContent);
-      _addCodeBlockLabels(bubble);
-    }
+    if (!bubble || !_streamingContent) return;
+
+    Markdown.renderInto(bubble, _streamingContent);
+    _addCodeBlockLabels(bubble);
+    _appendStreamingCursor(bubble);
+  }
+
+  /**
+   * Append animated streaming cursor to bubble (removes any existing one first).
+   */
+  function _appendStreamingCursor(bubble) {
+    // Remove existing cursor
+    var existing = bubble.querySelector(".streaming-cursor");
+    if (existing) existing.remove();
+
+    var cursor = document.createElement("div");
+    cursor.className = "streaming-cursor";
+    cursor.innerHTML = "<span></span><span></span><span></span>";
+    bubble.appendChild(cursor);
   }
 
   function _updateToolChips() {
@@ -377,10 +449,66 @@ var Chat = (function () {
       msgEl.insertBefore(chipsEl, msgEl.firstChild);
     }
 
-    chipsEl.innerHTML = "";
-    _streamingTools.forEach(function (tool) {
-      chipsEl.appendChild(_createToolChip(tool));
+    _renderToolChipsInto(chipsEl, _streamingTools);
+  }
+
+  /** Render tool chips into container, collapsing older ones if > MAX_VISIBLE. */
+  var MAX_VISIBLE_TOOLS = 5;
+
+  function _renderToolChipsInto(container, tools) {
+    container.innerHTML = "";
+    if (tools.length <= MAX_VISIBLE_TOOLS) {
+      tools.forEach(function (tool) { container.appendChild(_createToolChip(tool)); });
+      return;
+    }
+    // Collapsed indicator for older tools
+    var collapsed = tools.length - MAX_VISIBLE_TOOLS;
+    var toggle = document.createElement("button");
+    toggle.className = "tool-chip-toggle";
+    toggle.textContent = "+" + collapsed + I18n.t("tools.collapsed");
+    toggle.addEventListener("click", function () {
+      // Expand: re-render all chips without collapse
+      container.innerHTML = "";
+      tools.forEach(function (tool) { container.appendChild(_createToolChip(tool)); });
     });
+    container.appendChild(toggle);
+    // Show only the latest MAX_VISIBLE_TOOLS
+    for (var i = tools.length - MAX_VISIBLE_TOOLS; i < tools.length; i++) {
+      container.appendChild(_createToolChip(tools[i]));
+    }
+  }
+
+  /**
+   * Finalize a streaming bubble: render final content, remove cursor,
+   * optionally add a stopped notice.
+   */
+  function _finalizeStreamingBubble(content, showStopped) {
+    if (!_streamingMessageId) return;
+    var msgEl = $messages.querySelector('[data-message-id="' + _streamingMessageId + '"]');
+    if (!msgEl) return;
+
+    var bubble = msgEl.querySelector(".message-bubble");
+    if (!bubble) return;
+
+    // Remove streaming cursor
+    var cursor = bubble.querySelector(".streaming-cursor");
+    if (cursor) cursor.remove();
+
+    if (content) {
+      Markdown.renderInto(bubble, content);
+      _addCodeBlockLabels(bubble);
+
+      // Add stopped notice if needed (after the content)
+      if (showStopped) {
+        var notice = document.createElement("span");
+        notice.className = "stopped-notice";
+        notice.textContent = I18n.t("chat.manualStop");
+        bubble.appendChild(notice);
+      }
+    } else {
+      bubble.textContent = I18n.t("chat.manualStop");
+      bubble.classList.add("stopped");
+    }
   }
 
   function _finishStreaming() {
@@ -398,13 +526,8 @@ var Chat = (function () {
   }
 
   function _showStopButton(show) {
-    if (show) {
-      $sendBtn.hidden = true;
-      $stopBtn.hidden = false;
-    } else {
-      $sendBtn.hidden = false;
-      $stopBtn.hidden = true;
-    }
+    $stopBtn.hidden = !show;
+    $sendBtn.disabled = show;
   }
 
   function _scrollToBottom() {
@@ -413,10 +536,17 @@ var Chat = (function () {
     });
   }
 
+  /** Adaptive height: grow textarea up to max, then allow scroll (hidden scrollbar). */
   function _autoResize() {
     $input.style.height = "auto";
-    var newHeight = Math.min($input.scrollHeight, 200);
-    $input.style.height = newHeight + "px";
+    var maxH = 160;
+    if ($input.scrollHeight > maxH) {
+      $input.style.height = maxH + "px";
+      $input.style.overflowY = "auto";
+    } else {
+      $input.style.height = $input.scrollHeight + "px";
+      $input.style.overflowY = "hidden";
+    }
   }
 
   return {

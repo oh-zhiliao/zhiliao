@@ -100,9 +100,9 @@ var I18n = (function () {
         el.textContent = val;
       }
     });
-    // Update lang toggle button text
-    var langBtn = document.getElementById("lang-toggle");
-    if (langBtn) langBtn.textContent = _lang === "en" ? "EN" : "\u4E2D";
+    // Update lang toggle text in settings dropdown
+    var langText = document.getElementById("lang-toggle-text");
+    if (langText) langText.textContent = _lang === "en" ? "EN" : "\u4E2D";
     // Update login page lang toggle button text
     var loginLangBtn = document.getElementById("login-lang-toggle");
     if (loginLangBtn) loginLangBtn.textContent = _lang === "en" ? "EN" : "\u4E2D";

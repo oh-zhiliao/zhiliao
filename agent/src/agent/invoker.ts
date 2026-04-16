@@ -464,7 +464,10 @@ export class AgentInvoker {
         }
       }
     } catch (err: any) {
-      callbacks.onError?.(err.message ?? String(err));
+      // Don't report abort errors — the caller initiated the stop intentionally
+      if (err.name !== "AbortError") {
+        callbacks.onError?.(err.message ?? String(err));
+      }
       throw err;
     }
 

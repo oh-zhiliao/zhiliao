@@ -75,17 +75,6 @@
   --shadow-lg:       0 4px 24px rgba(0,0,0,0.45);
 }
 
-/* Dark mode: make header buttons more visible */
-[data-theme="dark"] .header-btn {
-  border-color: var(--text-tertiary);
-  color: var(--text-secondary);
-}
-
-[data-theme="dark"] .header-btn:hover {
-  border-color: var(--text-secondary);
-  color: var(--text-primary);
-}
-
 /* ============================================================
    Reset & Base
    ============================================================ */
@@ -386,9 +375,8 @@ body,
 .btn-primary:hover { background: var(--accent-hover); }
 .btn-primary:active { transform: scale(0.98); }
 
-.btn-secondary,
 .btn-danger {
-  flex: 1;
+  width: 100%;
   padding: 7px 10px;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
@@ -396,28 +384,15 @@ body,
   font-weight: 500;
   font-family: var(--font-body);
   cursor: pointer;
+  background: transparent;
+  color: var(--text-secondary);
   transition: background 0.2s, color 0.2s, border-color 0.2s;
 }
 
-.btn-secondary {
-  background: transparent;
-  color: var(--text-secondary);
-}
-
-.btn-secondary:hover {
-  background: var(--surface-hover);
-  color: var(--text-primary);
-  border-color: var(--text-tertiary);
-}
-
-.btn-danger {
-  background: transparent;
-  color: var(--error);
-  border-color: var(--error-muted);
-}
-
 .btn-danger:hover {
+  color: var(--error);
   background: var(--error-muted);
+  border-color: var(--error);
 }
 
 /* --- Hamburger (mobile) --- */
@@ -511,6 +486,70 @@ body,
 .header-btn svg {
   width: 15px;
   height: 15px;
+}
+
+/* --- Settings dropdown --- */
+.settings-wrapper {
+  position: relative;
+}
+
+.settings-dropdown {
+  display: none;
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  min-width: 160px;
+  padding: 4px;
+  z-index: 100;
+}
+
+.settings-dropdown.open {
+  display: block;
+}
+
+.settings-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 12px;
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: 0.85rem;
+  font-family: var(--font-body);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.settings-item:hover {
+  background: var(--surface-hover);
+}
+
+.settings-item svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+.settings-item-danger {
+  color: var(--error);
+}
+
+.settings-item-danger:hover {
+  background: var(--error-muted);
+  color: var(--error);
+}
+
+.settings-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 4px 8px;
 }
 
 /* Connection status */
@@ -710,7 +749,7 @@ body,
   padding: 1.5px 6px;
   border-radius: 4px;
   font-size: 0.86em;
-  font-family: var(--font-code);
+  font-family: var(--code);
   color: var(--accent);
   font-weight: 500;
 }
@@ -793,6 +832,38 @@ body,
 }
 
 /* ============================================================
+   Streaming / Stopped Indicators
+   ============================================================ */
+.streaming-cursor {
+  display: inline-flex;
+  gap: 5px;
+  padding: 6px 2px;
+  margin-top: 4px;
+}
+
+.streaming-cursor span {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  opacity: 0.6;
+  animation: dotPulse 1.4s ease-in-out infinite;
+}
+
+.streaming-cursor span:nth-child(2) { animation-delay: 0.2s; }
+.streaming-cursor span:nth-child(3) { animation-delay: 0.4s; }
+
+.stopped-notice {
+  display: block;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border);
+  color: var(--text-tertiary);
+  font-size: 0.8rem;
+  font-style: italic;
+}
+
+/* ============================================================
    Input Area
    ============================================================ */
 #input-area {
@@ -856,6 +927,9 @@ body,
   transition: background 0.15s, color 0.15s, border-color 0.15s, transform 0.1s;
 }
 
+/* Ensure hidden attribute wins over display: flex */
+#stop-btn[hidden] { display: none !important; }
+
 #send-btn {
   background: var(--accent-muted);
   color: var(--accent);
@@ -877,9 +951,6 @@ body,
   transform: none;
 }
 
-/* Ensure hidden attribute wins over display: flex */
-#stop-btn[hidden] { display: none !important; }
-
 #send-btn svg,
 #stop-btn svg {
   width: 18px;
@@ -898,11 +969,25 @@ body,
 }
 #stop-btn:active { transform: scale(0.95); }
 
-/* Stopped message style */
-.message.bot .message-bubble.stopped {
-  color: var(--text-tertiary);
-  font-style: italic;
+/* ============================================================
+   Loading Dots (initial bot message placeholder)
+   ============================================================ */
+.loading-dots {
+  display: inline-flex;
+  gap: 5px;
+  padding: 6px 2px;
 }
+
+.loading-dots span {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-tertiary);
+  animation: dotPulse 1.4s ease-in-out infinite;
+}
+
+.loading-dots span:nth-child(2) { animation-delay: 0.2s; }
+.loading-dots span:nth-child(3) { animation-delay: 0.4s; }
 
 /* ============================================================
    Scrollbar — Thin & Subtle
@@ -935,31 +1020,6 @@ body,
 }
 
 /* ============================================================
-   Loading Dots (shown while waiting for first token)
-   ============================================================ */
-.loading-dots {
-  display: inline-flex;
-  gap: 5px;
-  padding: 6px 2px;
-}
-
-.loading-dots span {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--text-tertiary);
-  animation: dotPulse 1.4s ease-in-out infinite;
-}
-
-.loading-dots span:nth-child(2) { animation-delay: 0.2s; }
-.loading-dots span:nth-child(3) { animation-delay: 0.4s; }
-
-@keyframes dotPulse {
-  0%, 80%, 100% { opacity: 0.25; transform: scale(0.8); }
-  40% { opacity: 1; transform: scale(1.1); }
-}
-
-/* ============================================================
    Animations
    ============================================================ */
 @keyframes msgIn {
@@ -975,6 +1035,11 @@ body,
 @keyframes chipPulse {
   0%, 100% { opacity: 1; }
   50%      { opacity: 0.65; }
+}
+
+@keyframes dotPulse {
+  0%, 80%, 100% { opacity: 0.25; transform: scale(0.8); }
+  40% { opacity: 1; transform: scale(1.1); }
 }
 
 /* Mobile-only elements hidden on desktop */
