@@ -31,6 +31,7 @@ function makeTools(): Partial<ToolRegistry> {
       { name: "git_file_read", description: "Read a file", input_schema: { type: "object", properties: {}, required: [] } },
     ]),
     executeTool: vi.fn().mockResolvedValue("file contents here"),
+    hasTool: vi.fn().mockReturnValue(false),
     isCheapTool: vi.fn().mockImplementation((name: string) => name !== "memory_search"),
     summarizeToolInput: vi.fn().mockReturnValue("summary"),
     getSystemPromptAddendum: vi.fn().mockReturnValue(""),

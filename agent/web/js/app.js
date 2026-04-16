@@ -18,6 +18,32 @@ var App = (function () {
     $loginError = document.getElementById("login-error");
     $connectionStatus = document.getElementById("connection-status");
 
+    // Initialize theme and i18n
+    Theme.init();
+    I18n.init();
+
+    // Wire up theme toggle
+    var themeBtn = document.getElementById("theme-toggle");
+    if (themeBtn) themeBtn.addEventListener("click", Theme.toggle);
+
+    // Wire up language toggle (chat header)
+    var langBtn = document.getElementById("lang-toggle");
+    if (langBtn) langBtn.addEventListener("click", I18n.toggle);
+
+    // Wire up language toggle (login page)
+    var loginLangBtn = document.getElementById("login-lang-toggle");
+    if (loginLangBtn) loginLangBtn.addEventListener("click", I18n.toggle);
+
+    // Wire up mobile new-chat button
+    var mobileNewChat = document.getElementById("mobile-new-chat");
+    if (mobileNewChat) {
+      mobileNewChat.addEventListener("click", function () {
+        var session = Store.createSession("New Chat");
+        Chat.loadSession(session.id);
+        Sidebar.refresh();
+      });
+    }
+
     $loginForm.addEventListener("submit", _handleLogin);
 
     // WS auth expiry handler
@@ -45,11 +71,11 @@ var App = (function () {
   function _updateConnectionStatus(connected) {
     if (!$connectionStatus) return;
     if (connected) {
-      $connectionStatus.className = "connection-dot connected";
-      $connectionStatus.title = "Connected";
+      $connectionStatus.className = "status-dot connected";
+      $connectionStatus.title = I18n.t("status.connected");
     } else {
-      $connectionStatus.className = "connection-dot disconnected";
-      $connectionStatus.title = "Disconnected";
+      $connectionStatus.className = "status-dot disconnected";
+      $connectionStatus.title = I18n.t("status.disconnected");
     }
   }
 
@@ -61,12 +87,12 @@ var App = (function () {
     $loginError.hidden = true;
     var submitBtn = $loginForm.querySelector("button");
     submitBtn.disabled = true;
-    submitBtn.textContent = "Logging in...";
+    submitBtn.textContent = I18n.t("login.submitting");
 
     var result = await Auth.login(password);
 
     submitBtn.disabled = false;
-    submitBtn.textContent = "Login";
+    submitBtn.textContent = I18n.t("login.submit");
 
     if (result.ok) {
       $passwordInput.value = "";

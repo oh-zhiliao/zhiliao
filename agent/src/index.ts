@@ -7,7 +7,7 @@ import { MemoToolsPlugin } from "./builtin/memo-tools.js";
 import { FeishuClient } from "./channels/feishu/client.js";
 import { FeishuAdapter } from "./channels/feishu/adapter.js";
 import { ChannelRouter } from "./channels/channel-router.js";
-import { existsSync, mkdirSync } from "fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { createWebChatServer } from "./channels/webchat/server.js";
 import { hashSync } from "bcryptjs";
 import { randomBytes } from "crypto";
@@ -149,7 +149,15 @@ async function main() {
     const rawPassword = config.webchat.password ?? "changeme";
     const passwordHash = rawPassword.startsWith("$2") ? rawPassword : hashSync(rawPassword, 10);
     const jwtSecret = (!config.webchat.jwt_secret || config.webchat.jwt_secret === "auto")
-      ? randomBytes(32).toString("hex")
+      ? (() => {
+          const secretPath = join(dataDir, "webchat-jwt-secret");
+          if (existsSync(secretPath)) {
+            return readFileSync(secretPath, "utf-8").trim();
+          }
+          const secret = randomBytes(32).toString("hex");
+          writeFileSync(secretPath, secret, "utf-8");
+          return secret;
+        })()
       : config.webchat.jwt_secret;
     const port = config.webchat.port ?? 8080;
 
