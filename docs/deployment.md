@@ -278,11 +278,11 @@ Mention the bot with `@GitMemo` followed by your question:
 ```
 
 ### In Topic Threads
-The bot maintains per-thread context — follow-up questions in the same thread don't need `@GitMemo`:
+All group types require @mention to avoid confusion, even within the same thread:
 
 ```
 @GitMemo explain the database schema       ← thread starts
-what about the migration history?           ← follow-up (no @ needed)
+@GitMemo what about the migration history?  ← follow-up (still need @)
 ```
 
 ### In Private Chat

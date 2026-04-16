@@ -142,7 +142,7 @@ Plugin commands follow the `/{plugin-name} {subcommand}` pattern.
 | Scenario | How |
 |----------|-----|
 | Group chat | `@Zhiliao how does the auth middleware work?` |
-| Topic thread | Follow up in the same thread without @ |
+| Topic thread | Still require @mention in the same thread |
 | Direct message | Just send your question |
 | Browser | Open `http://your-server:8080` |
 
