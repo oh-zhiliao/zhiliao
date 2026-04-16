@@ -969,8 +969,19 @@ export class AgentInvoker {
     if (this.db) {
       const row = this.db.loadSession(sessionId);
       if (row) {
+        const history = JSON.parse(row.history);
+        // Sanitize: fix truncated tool_call arguments from corrupted streaming sessions
+        for (const msg of history) {
+          if (msg.role === "assistant" && msg.tool_calls) {
+            for (const tc of msg.tool_calls) {
+              if (tc.function?.arguments) {
+                try { JSON.parse(tc.function.arguments); } catch { tc.function.arguments = "{}"; }
+              }
+            }
+          }
+        }
         return {
-          history: JSON.parse(row.history),
+          history,
           lastAccessedAt: row.lastAccessedAt,
           createdAt: row.createdAt,
           totalInputTokens: row.totalInputTokens,
