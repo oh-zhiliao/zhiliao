@@ -17,7 +17,15 @@ export function handleContext(agent: AgentInvoker, sessionKey: string): string {
   }
   const ageMin = Math.round((Date.now() - stats.createdAt) / 60000);
   const ageStr = ageMin < 60 ? `${ageMin} 分钟` : `${Math.floor(ageMin / 60)} 小时 ${ageMin % 60} 分钟`;
-  return `当前会话信息:\n- 消息数: ${stats.messageCount}\n- 输入 tokens: ${stats.totalInputTokens.toLocaleString()}\n- 输出 tokens: ${stats.totalOutputTokens.toLocaleString()}\n- 会话时长: ${ageStr}`;
+  const totalTokens = stats.totalInputTokens + stats.totalOutputTokens;
+  const compressed = stats.hasCompression ? " (已压缩)" : "";
+  return [
+    `当前会话信息:`,
+    `- Session: ${sessionKey}`,
+    `- 消息数: ${stats.messageCount}${compressed}`,
+    `- Tokens: ${totalTokens.toLocaleString()} (入 ${stats.totalInputTokens.toLocaleString()} / 出 ${stats.totalOutputTokens.toLocaleString()})`,
+    `- 会话时长: ${ageStr}`,
+  ].join("\n");
 }
 
 export function handleHelp(isDM: boolean): string {

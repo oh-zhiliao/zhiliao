@@ -61,6 +61,7 @@ export interface SessionStats {
   totalOutputTokens: number;
   createdAt: number;
   lastAccessedAt: number;
+  hasCompression: boolean;
 }
 
 export const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -799,6 +800,8 @@ export class AgentInvoker {
       const row = this.db.loadSession(sessionId);
       if (row) {
         const history = JSON.parse(row.history) as Array<any>;
+        const hasCompression = history.length > 0 && history[0]?.role === "user" &&
+          typeof history[0]?.content === "string" && history[0].content.startsWith("[系统] 以下是之前对话的摘要:");
         return {
           exists: true,
           messageCount: history.length,
@@ -806,10 +809,11 @@ export class AgentInvoker {
           totalOutputTokens: row.totalOutputTokens,
           createdAt: row.createdAt,
           lastAccessedAt: row.lastAccessedAt,
+          hasCompression,
         };
       }
     }
-    return { exists: false, messageCount: 0, totalInputTokens: 0, totalOutputTokens: 0, createdAt: 0, lastAccessedAt: 0 };
+    return { exists: false, messageCount: 0, totalInputTokens: 0, totalOutputTokens: 0, createdAt: 0, lastAccessedAt: 0, hasCompression: false };
   }
 
   cleanExpiredSessions(): number {
