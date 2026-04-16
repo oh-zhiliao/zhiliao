@@ -1,6 +1,6 @@
 # Architecture Overview
 
-知了 (Zhiliao) — 飞书智能问答 Bot，支持私聊和群聊，通过插件机制接入 Git 仓库、CLS 日志查询、MySQL 数据库查询等数据源，问答知识持久化。
+知了 (Zhiliao) — 多通道智能问答助手，支持飞书（私聊/群聊）和 WebChat（浏览器 UI），通过插件机制接入 Git 仓库、CLS 日志查询、MySQL 数据库查询等数据源，问答知识持久化。
 
 ## System Components
 
@@ -45,8 +45,19 @@
                                                   └─────────────┘
 ```
 
-Core app is a thin shell: Feishu WS + Agent loop + Session management + Plugin loading.
+Core app is a thin shell: Channel layer (Feishu + WebChat) + Agent loop + Session management + Plugin loading.
 Builtin memo-tools handles knowledge base; all other tools come from plugins.
+
+## Channel Architecture
+
+Channels implement the `Channel` interface (`agent/src/channels/channel.ts`) and route messages through `ChannelRouter` for unified command/question handling.
+
+| Channel | Interface | Streaming | Session Key | Status |
+|---------|-----------|-----------|-------------|--------|
+| **Feishu** | FeishuAdapter (own routing) | No | `feishu:{chat_id}:{thread_id}` | Production |
+| **WebChat** | WebChatChannel (implements Channel) | Yes (WebSocket) | `webchat:{session_id}` | Production |
+
+WebChatChannel fully implements the Channel interface and uses ChannelRouter. FeishuAdapter currently has independent routing logic — a future migration to the Channel interface is planned. See `docs/module-channels.md` for details.
 
 ## Tech Stack
 
@@ -83,7 +94,7 @@ Deep Scanner (daily) → walk repo files
 ## Key Design Decisions
 
 - **全插件架构**: 核心应用只包含 memo-tools（与内置 Memo 服务紧耦合），其余 tool 实现由插件提供
-- **多通道支持**: FeishuAdapter 和 WebChatChannel 共享同一 AgentInvoker 和 Session 层，通道间互不干扰
+- **多通道支持**: FeishuAdapter 和 WebChatChannel 共享同一 AgentInvoker 和 Session 层，通道间互不干扰。Channel 接口 + ChannelRouter 提供统一的命令/问答路由，新通道只需实现 Channel 接口即可接入
 - 飞书话题群 per-thread session (`feishu:{chat_id}:{thread_id}`); WebChat per-session key (`webchat:{session_id}`)
 - 插件可声明命令 (`getCommandHandlers()`)、后台服务 (`start()/stop()`)、工具 (`getToolDefinitions()`)
 - 命令格式: `/{plugin-name} {subcommand}`，会话命令 (/new, /context, /help) 内置

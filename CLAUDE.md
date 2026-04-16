@@ -1,6 +1,6 @@
 # 知了 (Zhiliao) — 项目宪法
 
-飞书智能问答 Bot — 支持私聊和群聊，通过插件机制接入 Git 仓库、CLS 日志查询、MySQL 数据库查询等数据源，问答知识持久化。
+多通道智能问答助手 — 支持飞书（私聊/群聊）和 WebChat（浏览器 UI），通过插件机制接入 Git 仓库、CLS 日志查询、MySQL 数据库查询等数据源，问答知识持久化。通道层可扩展（`Channel` 接口 + `ChannelRouter`）。
 
 ## AI Agent 开发流程
 
@@ -37,7 +37,8 @@
 
 ### 4. 代码审查
 
-重大变更完成后使用 code-reviewer agent 审查，对照 plan 和本文档规范。
+- 重大变更完成后使用 code-reviewer agent 审查，对照 plan 和本文档规范。
+- 不允许将隐私信息（用户名、密码、环境IP等）提交到代码库。
 
 ### 5. 避免重复犯错
 
@@ -74,7 +75,7 @@ docker compose up -d
 
 ## Architecture Note
 
-Core app is a thin shell (Feishu WS + Agent loop + Session + Plugin loading). Builtin tools handle knowledge base; everything else comes from plugins:
+Core app is a thin shell (Channel layer + Agent loop + Session + Plugin loading). Channels (Feishu, WebChat) route messages through ChannelRouter to the Agent; builtin tools handle knowledge base; everything else comes from plugins:
 - **memo-tools** (builtin): memory_search, get_memory — knowledge base search
 - **git-repos** plugin: git tools, tracker, scanner, notifier, `/git-repos` commands — [oh-zhiliao/git-repos](https://github.com/oh-zhiliao/git-repos)
 - **cls-query** plugin: Tencent CLS log query — [oh-zhiliao/cls-query](https://github.com/oh-zhiliao/cls-query)
@@ -93,6 +94,7 @@ Session commands: `/new`, `/context`, `/help` (builtin)
 - @docs/module-config-db.md — 配置加载、数据库、入口启动流程
 - @docs/module-git.md — Git 操作（共享基础，被 git-repos 插件使用）
 - @docs/module-feishu.md — 飞书通道：client、adapter、路由、消息格式、secret 过滤
+- @docs/module-channels.md — 通道抽象层：Channel 接口、ChannelRouter、WebChat、新通道开发指南
 - @docs/module-agent.md — Agent invoker、agentic loop、插件系统
 - @docs/module-memo.md — Memo 知识服务：索引、搜索、衰减、embedding 模型
 - @docs/module-commands.md — 命令路由、会话命令、插件命令

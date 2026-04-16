@@ -1081,21 +1081,13 @@ body,
 
   .message.user .message-bubble { max-width: 92%; }
 
-  .header-actions { gap: 4px; }
+  .header-actions { gap: 10px; }
 
   .header-btn {
-    padding: 3px 6px;
-    min-width: 26px;
-    height: 26px;
+    padding: 4px;
+    min-width: 34px;
+    height: 34px;
     font-size: 0.72rem;
   }
-  .header-btn svg { width: 13px; height: 13px; }
-
-  /* Larger mobile new-chat button — easier to tap */
-  #mobile-new-chat {
-    min-width: 36px;
-    height: 34px;
-    padding: 4px 8px;
-  }
-  #mobile-new-chat svg { width: 16px; height: 16px; }
+  .header-btn svg { width: 15px; height: 15px; }
 }
