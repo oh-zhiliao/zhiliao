@@ -1,15 +1,17 @@
 import os
 import tempfile
-import pytest
-from unittest.mock import MagicMock, AsyncMock
+from unittest.mock import AsyncMock, MagicMock
+
 import numpy as np
-from httpx import AsyncClient, ASGITransport
-from server import app, state
-from store import KnowledgeStore, KnowledgeEntry
-from llm_client import LLMClient
-from indexer import CommitIndexer
-from search import HybridSearch
+import pytest
+from httpx import ASGITransport, AsyncClient
+
 from decay import DecayManager
+from indexer import CommitIndexer
+from llm_client import LLMClient
+from search import HybridSearch
+from server import app, state
+from store import KnowledgeEntry, KnowledgeStore
 
 
 @pytest.fixture

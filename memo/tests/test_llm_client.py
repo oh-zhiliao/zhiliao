@@ -1,7 +1,9 @@
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import numpy as np
 import openai
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+
 from llm_client import LLMClient
 
 

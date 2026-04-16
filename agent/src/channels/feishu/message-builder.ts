@@ -36,7 +36,7 @@ export function tableToColumnSets(tableLines: string[]): Record<string, unknown>
 
   if (dataRows.length === 0) return [];
 
-  const colCount = headers.length;
+  const _colCount = headers.length;
 
   const makeColumnSet = (
     cells: string[],
@@ -130,6 +130,7 @@ export function splitMarkdownSegments(md: string): Segment[] {
     if (tableBuffer.length >= 2) {
       // Restore code blocks in table lines (unlikely but safe)
       const restored = tableBuffer.map((l) =>
+        // eslint-disable-next-line no-control-regex -- intentional sentinel for code block placeholders
         l.replace(/\x00CB(\d+)\x00/g, (_m, i) => codeBlocks[Number(i)])
       );
       segments.push({ type: "table", content: restored });
@@ -155,6 +156,7 @@ export function splitMarkdownSegments(md: string): Segment[] {
   for (const seg of segments) {
     if (seg.type === "text") {
       seg.content = seg.content.map((l) =>
+        // eslint-disable-next-line no-control-regex -- intentional sentinel for code block placeholders
         l.replace(/\x00CB(\d+)\x00/g, (_m, i) => codeBlocks[Number(i)])
       );
     }

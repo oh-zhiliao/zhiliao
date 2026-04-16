@@ -93,7 +93,7 @@ describe("ChannelRouter", () => {
     const sendProgress = vi.fn().mockResolvedValue(undefined);
     const channel = createMockChannel({ sendProgress });
     const ctx = createMockContext();
-    mockAgent.ask.mockImplementation(async (_q: string, _s: string, onProgress?: Function) => {
+    mockAgent.ask.mockImplementation(async (_q: string, _s: string, onProgress?: (msg: string) => void) => {
       onProgress?.("tool: git-repos.search(query)");
       return { text: "done" };
     });

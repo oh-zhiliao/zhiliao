@@ -101,6 +101,7 @@ Session commands: `/new`, `/context`, `/help` (builtin)
 - @docs/module-notifier.md — 飞书变更通知推送（已迁移到 git-repos 插件）
 - @docs/plugin-development.md — 插件开发指南：接口、命令、后台服务、生命周期、完整示例
 - @docs/testing.md — 测试框架、测试结构、运行方式
+- @docs/testing-framework.md — 分层测试金字塔 (L1-L4) 与 deploy preflight 门禁
 - @docs/deployment.md — 部署手册
 - @docs/mistakes.md — 常见错误模式（**每次开发前必读**）
 

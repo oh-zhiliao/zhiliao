@@ -1,8 +1,9 @@
-import numpy as np
 import os
 import tempfile
-import pytest
 from unittest.mock import AsyncMock, MagicMock
+
+import numpy as np
+import pytest
 
 from indexer import CommitIndexer
 from store import KnowledgeStore

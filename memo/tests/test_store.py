@@ -1,9 +1,11 @@
 import os
 import tempfile
 import time
+
 import numpy as np
 import pytest
-from store import KnowledgeStore, KnowledgeEntry
+
+from store import KnowledgeEntry, KnowledgeStore
 
 
 @pytest.fixture

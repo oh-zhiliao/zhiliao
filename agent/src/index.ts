@@ -27,7 +27,7 @@ async function main() {
     delete process.env.https_proxy;
     delete process.env.HTTP_PROXY;
     delete process.env.HTTPS_PROXY;
-    // @ts-ignore -- no type declarations for global-agent
+    // @ts-expect-error -- no type declarations for global-agent
     const globalAgent = await import("global-agent");
     globalAgent.bootstrap();
   }
@@ -166,6 +166,7 @@ async function main() {
         port,
         passwordHash,
         jwtSecret,
+        testToken: config.webchat.test_token,
         feishuAuth: config.webchat.feishu_auth ? {
           appId: config.feishu.app_id,
           appSecret: config.feishu.app_secret,

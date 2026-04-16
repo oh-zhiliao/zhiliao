@@ -1,10 +1,7 @@
-import time
 from collections import defaultdict
 
-import numpy as np
-
 from llm_client import LLMClient
-from store import KnowledgeStore, KnowledgeEntry
+from store import KnowledgeEntry, KnowledgeStore
 
 
 class CommitIndexer:
@@ -23,7 +20,7 @@ class CommitIndexer:
         # Group by date for daily summaries
         by_date: dict[str, list[dict]] = defaultdict(list)
 
-        for commit, content, embedding in zip(commits, contents, embeddings):
+        for commit, content, embedding in zip(commits, contents, embeddings, strict=True):
             entry_id = f"{repo_name}:commit:{commit['hash']}"
 
             entry = KnowledgeEntry(

@@ -7,14 +7,14 @@ from typing import Optional
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
-logger = logging.getLogger(__name__)
-
 from config import load_config
 from decay import DecayManager
 from indexer import CommitIndexer
 from llm_client import LLMClient
 from search import HybridSearch
-from store import KnowledgeStore, KnowledgeEntry
+from store import KnowledgeEntry, KnowledgeStore
+
+logger = logging.getLogger(__name__)
 
 _start_time = time.time()
 

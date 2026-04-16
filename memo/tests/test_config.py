@@ -1,6 +1,6 @@
-import os
 import pytest
-from config import MemoConfig, load_config
+
+from config import load_config
 
 
 def test_load_config_from_env(monkeypatch):

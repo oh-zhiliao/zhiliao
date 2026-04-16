@@ -1,4 +1,4 @@
-import type { AgentInvoker, SessionStats } from "../agent/invoker.js";
+import type { AgentInvoker } from "../agent/invoker.js";
 
 export function handleNew(agent: AgentInvoker, sessionKey: string): string {
   const stats = agent.getSessionStats(sessionKey);
@@ -28,7 +28,7 @@ export function handleContext(agent: AgentInvoker, sessionKey: string): string {
   ].join("\n");
 }
 
-export function handleHelp(isDM: boolean): string {
+export function handleHelp(_isDM: boolean): string {
   const lines = [
     "知了命令列表:",
     "",

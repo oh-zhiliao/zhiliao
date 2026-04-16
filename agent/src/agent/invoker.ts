@@ -230,6 +230,7 @@ export class AgentInvoker {
     }
     const effectivePrompt = this.config.systemPrompt + dateLine + memoryContext + (addendum ? `\n\n${addendum}` : "");
 
+    // eslint-disable-next-line no-useless-assignment -- defensive init for catch path
     let finalText = "";
     let expensiveIterations = 0;
     let totalIterations = 0;
@@ -375,6 +376,7 @@ export class AgentInvoker {
     }
     const effectivePrompt = this.config.systemPrompt + dateLine + memoryContext + (addendum ? `\n\n${addendum}` : "");
 
+    // eslint-disable-next-line no-useless-assignment -- defensive init for catch path
     let finalText = "";
     let expensiveIterations = 0;
     let totalIterations = 0;

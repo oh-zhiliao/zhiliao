@@ -1,4 +1,3 @@
-import numpy as np
 
 from llm_client import LLMClient
 from store import KnowledgeStore

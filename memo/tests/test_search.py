@@ -1,11 +1,12 @@
 import os
 import tempfile
-import numpy as np
-import pytest
 from unittest.mock import AsyncMock, MagicMock
 
+import numpy as np
+import pytest
+
 from search import HybridSearch
-from store import KnowledgeStore, KnowledgeEntry
+from store import KnowledgeEntry, KnowledgeStore
 
 
 @pytest.fixture

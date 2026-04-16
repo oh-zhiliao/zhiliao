@@ -11,7 +11,16 @@
     "dev": "tsx src/index.ts",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:e2e": "vitest run tests/e2e/"
+    "test:web": "vitest run --config vitest.web.config.ts",
+    "test:e2e": "playwright test",
+    "test:api": "vitest run tests/e2e/",
+    "lint": "eslint src/ tests/ --max-warnings 0",
+    "lint:fix": "eslint src/ tests/ --fix",
+    "typecheck": "tsc --noEmit",
+    "test:l1": "vitest run",
+    "test:l2": "vitest run --config vitest.web.config.ts",
+    "test:l3": "npm run lint && npm run typecheck",
+    "test:all": "npm run test:l3 && npm run test:l1 && npm run test:l2"
   },
   "keywords": [],
   "author": "",
@@ -31,6 +40,8 @@
     "yaml": "^2.8.3"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.59.1",
     "@types/bcryptjs": "^2.4.6",
     "@types/better-sqlite3": "^7.6.13",
     "@types/express": "^5.0.6",
@@ -39,8 +50,13 @@
     "@types/node-fetch": "github:types/express",
     "@types/supertest": "^7.2.0",
     "@types/ws": "^8.18.1",
+    "@vitest/browser": "^4.1.4",
+    "eslint": "^10.2.0",
+    "globals": "^17.5.0",
+    "jsdom": "^29.0.2",
     "supertest": "^7.2.2",
     "typescript": "^6.0.2",
+    "typescript-eslint": "^8.58.2",
     "vitest": "^4.1.2"
   }
 }

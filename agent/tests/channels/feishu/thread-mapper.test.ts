@@ -15,7 +15,7 @@ describe("buildSessionKey", () => {
       senderName: "Alice",
       messageId: "om_msg789",
       logId: "test",
-      debugMode: false,
+      debugLevel: 0,
     };
     expect(buildSessionKey(ctx)).toBe("feishu:oc_abc123:omt_thread456");
   });
@@ -29,7 +29,7 @@ describe("buildSessionKey", () => {
       senderName: "Alice",
       messageId: "om_msg789",
       logId: "test",
-      debugMode: false,
+      debugLevel: 0,
     };
     expect(buildSessionKey(ctx)).toBe("feishu:oc_abc123:main");
   });
@@ -43,7 +43,7 @@ describe("buildSessionKey", () => {
       senderName: "Alice",
       messageId: "om_msg789",
       logId: "test",
-      debugMode: false,
+      debugLevel: 0,
     };
     expect(buildSessionKey(ctx)).toBe("feishu:p2p:ou_user1");
   });

@@ -142,6 +142,27 @@ cmd_setup() {
   echo "  4. bash deploy-local.sh start"
 }
 
+# ─── preflight ──────────────────────────────────────────────────────────────
+
+cmd_preflight() {
+  log "Running L1-L3 preflight (lint + typecheck + unit tests)..."
+  (
+    cd "$ROOT_DIR/agent"
+    npm run test:l3 || die "L3 lint/typecheck failed — fix before deploying"
+    npm run test:l1 || die "L1 unit tests failed — fix before deploying"
+    if [[ -f vitest.web.config.ts ]]; then
+      npm run test:l2 || die "L2 frontend tests failed — fix before deploying"
+    fi
+  )
+  if [[ -x "$MEMO_VENV/bin/ruff" ]]; then
+    (cd "$ROOT_DIR/memo" && "$MEMO_VENV/bin/ruff" check .) || die "memo ruff failed"
+  fi
+  if [[ -x "$MEMO_VENV/bin/pytest" ]]; then
+    (cd "$ROOT_DIR/memo" && "$MEMO_VENV/bin/pytest" -q tests/) || die "memo pytest failed"
+  fi
+  log "Preflight passed."
+}
+
 # ─── start ──────────────────────────────────────────────────────────────────
 
 start_memo() {
@@ -206,6 +227,11 @@ start_agent() {
 
 cmd_start() {
   ensure_dirs
+  if [[ "${SKIP_PREFLIGHT:-0}" != "1" ]]; then
+    cmd_preflight
+  else
+    log "SKIP_PREFLIGHT=1 — skipping L1-L3 gate (use for emergency deploys only)"
+  fi
   start_memo
   start_agent
   log "All services started."
@@ -283,14 +309,17 @@ cmd_logs() {
 # ─── main ───────────────────────────────────────────────────────────────────
 
 case "${1:-}" in
-  setup)   cmd_setup ;;
-  start)   cmd_start ;;
-  stop)    cmd_stop ;;
-  restart) cmd_restart ;;
-  status)  cmd_status ;;
-  logs)    cmd_logs "${2:-all}" ;;
+  setup)     cmd_setup ;;
+  preflight) cmd_preflight ;;
+  start)     cmd_start ;;
+  stop)      cmd_stop ;;
+  restart)   cmd_restart ;;
+  status)    cmd_status ;;
+  logs)      cmd_logs "${2:-all}" ;;
   *)
-    echo "Usage: bash deploy-local.sh {setup|start|stop|restart|status|logs [memo|agent|all]}"
+    echo "Usage: bash deploy-local.sh {setup|preflight|start|stop|restart|status|logs [memo|agent|all]}"
+    echo ""
+    echo "Set SKIP_PREFLIGHT=1 to bypass L1-L3 gate on start (emergency use only)."
     exit 1
     ;;
 esac

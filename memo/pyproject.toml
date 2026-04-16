@@ -1,3 +1,21 @@
 [tool.pytest.ini_options]
 pythonpath = ["."]
 asyncio_mode = "auto"
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B"]
+ignore = [
+    "E501",  # line length handled by formatter
+    "B008",  # allow default factory calls in FastAPI (e.g. Depends())
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = [
+    "E402",  # module-import-not-at-top (tests may sys.path.insert)
+    "F401",  # unused-import (fixtures)
+    "F841",  # unused local (legitimate in assertions)
+]

@@ -25,6 +25,9 @@ export interface WebChatConfig {
   passwordHash: string;
   jwtSecret: string;
   feishuAuth?: FeishuAuthConfig;
+  /** Test-only: if set, enables GET /api/auth/test-token?token=<this> to mint a JWT.
+   *  MUST be left unset in production. */
+  testToken?: string;
 }
 
 export function createWebChatServer(
@@ -69,6 +72,19 @@ export function createWebChatServer(
   app.get("/api/health", (_req, res) => {
     res.json({ status: "ok" });
   });
+
+  // Test-only auth bypass. Only active when config.testToken is explicitly set.
+  if (config.testToken) {
+    app.get("/api/auth/test-token", (req, res) => {
+      if (req.query.token !== config.testToken) {
+        res.status(401).json({ error: "Invalid test token" });
+        return;
+      }
+      const userId = typeof req.query.user === "string" ? req.query.user : "test_user";
+      const token = jwt.sign({ sub: userId, auth_method: "test" }, config.jwtSecret, { expiresIn: "1h" });
+      res.json({ token });
+    });
+  }
 
   // --- Feishu OAuth2 endpoints ---
 

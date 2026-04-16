@@ -32,7 +32,7 @@ class LLMClient:
         for attempt in range(max_retries):
             try:
                 return await fn(*args, **kwargs)
-            except (openai.APITimeoutError, openai.APIConnectionError) as e:
+            except (openai.APITimeoutError, openai.APIConnectionError):
                 if attempt == max_retries - 1:
                     raise
                 await asyncio.sleep(2 ** attempt)
