@@ -30,6 +30,12 @@ export interface ZhiliaoConfig {
     data_dir?: string;       // default <dataDir>/memo
   };
   admins?: string[];
+  webchat?: {
+    enabled?: boolean;    // default false
+    port?: number;        // default 8080
+    password?: string;    // bcrypt hash or plaintext (auto-hashed on first run)
+    jwt_secret?: string;  // auto-generated if "auto" or missing
+  };
 }
 
 function substituteEnvVars(text: string): string {
