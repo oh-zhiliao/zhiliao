@@ -537,6 +537,52 @@ cp my-plugin/config.example.yaml my-plugin/config.yaml
 # 编辑 config.yaml 填入真实凭据（密钥直接写入，各插件 .gitignore 已排除 config.yaml）
 ```
 
+### 知识目录路径 (`knowledge_dir` 模式)
+
+如果插件加载本地知识文件（markdown 等），通过 `__dirname` + `fileURLToPath(import.meta.url)` 解析 `{plugin_root}/knowledge/` 是常见做法。但在**共享源码 + 符号链接**的部署场景下（见 `deployment.md`），插件 `src/` 通过 symlink 指向源码树，`__dirname` 经 realpath 解析后会回到源码树 —
+此时部署目录下的 `plugins/<plugin>/knowledge/` 是**死代码**，不会被读取。
+
+为避免这个陷阱，**加载知识的插件**应提供 `knowledge_dir?: string` 配置字段：
+
+```typescript
+interface MyPluginConfig {
+  // ...
+  /** Absolute path override for the knowledge directory. When set, overrides
+   *  the default colocated {plugin_root}/knowledge. Useful for deployments
+   *  that want knowledge files isolated from the plugin source tree. */
+  knowledge_dir?: string;
+}
+
+const DEFAULT_KNOWLEDGE_DIR = resolve(PLUGIN_ROOT, "knowledge");
+
+export default class MyPlugin implements ToolPlugin {
+  private knowledgeDir = DEFAULT_KNOWLEDGE_DIR;
+
+  async init(config: Record<string, any>): Promise<void> {
+    this.config = config as MyPluginConfig;
+    if (this.config.knowledge_dir) {
+      this.knowledgeDir = this.config.knowledge_dir;
+    }
+    // ...
+  }
+
+  private loadKnowledge(): void {
+    if (!existsSync(this.knowledgeDir)) return;
+    // ... use this.knowledgeDir everywhere
+  }
+}
+```
+
+部署方在 `plugins/<plugin>/config.yaml` 中设置绝对路径即可：
+
+```yaml
+knowledge_dir: "/home/zhiliao/zhiliao/data/knowledge/my-plugin"
+```
+
+默认行为（未设置该字段）保持不变，仍然使用 `{plugin_root}/knowledge/`。
+
+`cls-query` 和 `mysql-query` 是此模式的参考实现。
+
 ### Docker 环境
 
 所有插件通过 `./plugins:/app/plugins` 统一挂载：
