@@ -148,6 +148,47 @@ window.__zhiliao_cdp = {
 | 7. CDP 原生截图 | Playwright 自带 `page.screenshot()` | — |
 | 8. 失败日志回归 | ✅ L4 | `tests/e2e-web/failures.jsonl` |
 
+## 插件仓库的 preflight 约定
+
+核心的 L1-L4 铁律同样适用于 3 个独立插件仓库（`git-repos` / `cls-query` / `mysql-query`）。
+由于插件没有前端 JS 和浏览器 UI，只落地 **L1 + L3**（L2/L4 不适用）。
+
+每个插件都必须具备：
+
+| 文件 | 作用 |
+|------|------|
+| `eslint.config.js` | flat config，与核心同构（`recommended` + `typescript-eslint` + `--max-warnings 0`） |
+| `tsconfig.test.json` | `extends ./tsconfig.json`，`rootDir: "."` + `noEmit: true` + `"types": ["node"]`，`include` 覆盖 `src/` `tests/` `types/` |
+| `types/plugin-core.d.ts` | **通配符 ambient module**：`declare module "*/tool-plugin.js" { ... }`，让插件脱离核心源码也能独立 typecheck。与 `zhiliao/agent/src/agent/tool-plugin.ts` 保持同步 |
+| `tests/` | vitest L1 单测，覆盖 `init` 校验、`getToolDefinitions`、`getSecretPatterns`、`summarizeInput`、`executeTool` 错误路径等纯函数面 |
+
+统一脚本（每个插件 `package.json`）：
+
+```json
+{
+  "scripts": {
+    "lint": "eslint src/ tests/ --max-warnings 0",
+    "typecheck": "tsc --noEmit -p tsconfig.test.json",
+    "test": "vitest run",
+    "test:all": "npm run lint && npm run typecheck && npm run test",
+    "preflight": "npm run test:all"
+  }
+}
+```
+
+**铁律**：插件改动 → 在插件目录执行 `npm run preflight` → 绿了才能合并/部署。
+
+### 为什么用通配符 ambient module
+
+插件在部署布局中通过 `../../agent/src/agent/tool-plugin.js` 相对路径 import 核心接口，
+但在插件仓库独立 clone 时这个相对路径不存在，`tsc --noEmit` 会失败。
+
+TypeScript 禁止 ambient 声明使用相对路径（TS2436），所以用通配符：
+`declare module "*/tool-plugin.js"` 匹配 **任何**以 `/tool-plugin.js` 结尾的 import
+specifier，让标准 typecheck 通过。运行时仍走真实路径解析，不受影响。
+
+> 注意：`.d.ts` 注释里严禁出现 `*/` 字面量（会被解析器当成注释结束符）。
+
 ## 给 AI Agent 的协作规则
 
 1. **改代码 → 跑 preflight → 贴输出**。无输出证据 = 未完成。
