@@ -29,8 +29,11 @@ describe("WebChatConfig", () => {
   });
 
   it("JWT sign and verify round-trip", () => {
-    const token = jwt.sign({ sub: "webchat_user" }, config.jwtSecret, { expiresIn: "1h" });
-    const decoded = jwt.verify(token, config.jwtSecret) as jwt.JwtPayload;
+    const token = jwt.sign({ sub: "webchat_user" }, config.jwtSecret, {
+      expiresIn: "1h",
+      audience: "session",
+    });
+    const decoded = jwt.verify(token, config.jwtSecret, { audience: "session" }) as jwt.JwtPayload;
     expect(decoded.sub).toBe("webchat_user");
     expect(decoded.exp).toBeGreaterThan(Date.now() / 1000);
   });
@@ -40,7 +43,7 @@ describe("WebChatConfig", () => {
   });
 
   it("JWT verify rejects wrong secret", () => {
-    const token = jwt.sign({ sub: "webchat_user" }, config.jwtSecret);
+    const token = jwt.sign({ sub: "webchat_user" }, config.jwtSecret, { audience: "session" });
     expect(() => jwt.verify(token, "wrong-secret")).toThrow();
   });
 });
@@ -278,7 +281,7 @@ describe("createWebChatServer HTTP endpoints", () => {
   });
 
   it("DELETE /api/sessions/:id with valid token clears session", async () => {
-    const token = jwt.sign({ sub: "webchat_user" }, TEST_JWT_SECRET, { expiresIn: "1h" });
+    const token = jwt.sign({ sub: "webchat_user" }, TEST_JWT_SECRET, { expiresIn: "1h", audience: "session" });
     const res = await fetch(`${baseUrl}/api/sessions/test-session`, {
       method: "DELETE",
       headers: { Authorization: `Bearer ${token}` },
@@ -302,6 +305,22 @@ describe("createWebChatServer HTTP endpoints", () => {
       headers: { Authorization: "Bearer invalid.token.here" },
     });
     expect(res.status).toBe(401);
+  });
+
+  // P0 regression: a signed oauth_state JWT must NOT be usable as a session Bearer token.
+  // Before the audience-scoped fix, the state JWT (5m, same secret, HS256) passed
+  // verifyToken and let an attacker DELETE arbitrary sessions.
+  it("DELETE /api/sessions/:id rejects oauth_state JWT as Bearer token", async () => {
+    const stateJwt = jwt.sign({ nonce: "attacker" }, TEST_JWT_SECRET, {
+      expiresIn: "5m",
+      audience: "oauth_state",
+    });
+    const res = await fetch(`${baseUrl}/api/sessions/target-session`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${stateJwt}` },
+    });
+    expect(res.status).toBe(401);
+    expect(mockAgent.clearSession).not.toHaveBeenCalled();
   });
 });
 
@@ -393,9 +412,28 @@ describe("createWebChatServer WebSocket", () => {
     });
   });
 
+  // P0 regression: oauth_state JWT must NOT authorize a WebSocket connection.
+  it("rejects WebSocket connection presenting an oauth_state JWT", async () => {
+    const { WebSocket: WS } = await import("ws");
+    const stateJwt = jwt.sign({ nonce: "attacker" }, TEST_JWT_SECRET, {
+      expiresIn: "5m",
+      audience: "oauth_state",
+    });
+    const ws = new WS(`${wsUrl}/ws?token=${stateJwt}`);
+
+    await new Promise<void>((resolve, reject) => {
+      ws.on("close", (code) => {
+        expect(code).toBe(4001);
+        resolve();
+      });
+      ws.on("error", () => resolve());
+      setTimeout(() => reject(new Error("timeout")), 3000);
+    });
+  });
+
   it("accepts WebSocket connection with valid token", async () => {
     const { WebSocket: WS } = await import("ws");
-    const token = jwt.sign({ sub: "webchat_user" }, TEST_JWT_SECRET, { expiresIn: "1h" });
+    const token = jwt.sign({ sub: "webchat_user" }, TEST_JWT_SECRET, { expiresIn: "1h", audience: "session" });
     const ws = new WS(`${wsUrl}/ws?token=${token}`);
 
     await new Promise<void>((resolve, reject) => {
@@ -410,7 +448,7 @@ describe("createWebChatServer WebSocket", () => {
 
   it("handles message and receives streaming response", async () => {
     const { WebSocket: WS } = await import("ws");
-    const token = jwt.sign({ sub: "webchat_user" }, TEST_JWT_SECRET, { expiresIn: "1h" });
+    const token = jwt.sign({ sub: "webchat_user" }, TEST_JWT_SECRET, { expiresIn: "1h", audience: "session" });
     const ws = new WS(`${wsUrl}/ws?token=${token}`);
 
     const messages: any[] = [];
@@ -449,7 +487,7 @@ describe("createWebChatServer WebSocket", () => {
 
   it("handles history request", async () => {
     const { WebSocket: WS } = await import("ws");
-    const token = jwt.sign({ sub: "webchat_user" }, TEST_JWT_SECRET, { expiresIn: "1h" });
+    const token = jwt.sign({ sub: "webchat_user" }, TEST_JWT_SECRET, { expiresIn: "1h", audience: "session" });
     const ws = new WS(`${wsUrl}/ws?token=${token}`);
 
     await new Promise<void>((resolve, reject) => {
@@ -479,7 +517,7 @@ describe("createWebChatServer WebSocket", () => {
 
   it("handles invalid JSON gracefully", async () => {
     const { WebSocket: WS } = await import("ws");
-    const token = jwt.sign({ sub: "webchat_user" }, TEST_JWT_SECRET, { expiresIn: "1h" });
+    const token = jwt.sign({ sub: "webchat_user" }, TEST_JWT_SECRET, { expiresIn: "1h", audience: "session" });
     const ws = new WS(`${wsUrl}/ws?token=${token}`);
 
     await new Promise<void>((resolve, reject) => {
@@ -505,7 +543,7 @@ describe("createWebChatServer WebSocket", () => {
 
   it("routes commands through ChannelRouter", async () => {
     const { WebSocket: WS } = await import("ws");
-    const token = jwt.sign({ sub: "webchat_user" }, TEST_JWT_SECRET, { expiresIn: "1h" });
+    const token = jwt.sign({ sub: "webchat_user" }, TEST_JWT_SECRET, { expiresIn: "1h", audience: "session" });
     const ws = new WS(`${wsUrl}/ws?token=${token}`);
 
     // Make handleMessage resolve and send a reply
@@ -543,7 +581,7 @@ describe("createWebChatServer WebSocket", () => {
 
   it("rejects duplicate session messages", async () => {
     const { WebSocket: WS } = await import("ws");
-    const token = jwt.sign({ sub: "webchat_user" }, TEST_JWT_SECRET, { expiresIn: "1h" });
+    const token = jwt.sign({ sub: "webchat_user" }, TEST_JWT_SECRET, { expiresIn: "1h", audience: "session" });
     const ws = new WS(`${wsUrl}/ws?token=${token}`);
 
     // Make askStreaming hang to simulate a long-running request
@@ -709,7 +747,10 @@ describe("Feishu OAuth2 endpoints", () => {
     it("rejects expired state JWT", async () => {
       await startServer(FEISHU_CONFIG);
       // Create an already-expired state JWT
-      const expiredState = jwt.sign({ nonce: "x" }, TEST_JWT_SECRET, { expiresIn: "0s" });
+      const expiredState = jwt.sign({ nonce: "x" }, TEST_JWT_SECRET, {
+        expiresIn: "0s",
+        audience: "oauth_state",
+      });
       // Wait a tick for it to truly expire
       await new Promise((r) => setTimeout(r, 100));
       const res = await fetch(
@@ -723,7 +764,7 @@ describe("Feishu OAuth2 endpoints", () => {
 
     it("rejects missing code", async () => {
       await startServer(FEISHU_CONFIG);
-      const state = jwt.sign({ nonce: "test" }, TEST_JWT_SECRET, { expiresIn: "5m" });
+      const state = jwt.sign({ nonce: "test" }, TEST_JWT_SECRET, { expiresIn: "5m", audience: "oauth_state" });
       const res = await fetch(
         `${baseUrl}/api/auth/feishu/callback?state=${state}`,
         { redirect: "manual" },
@@ -753,7 +794,7 @@ describe("Feishu OAuth2 endpoints", () => {
         },
       });
 
-      const state = jwt.sign({ nonce: "test" }, TEST_JWT_SECRET, { expiresIn: "5m" });
+      const state = jwt.sign({ nonce: "test" }, TEST_JWT_SECRET, { expiresIn: "5m", audience: "oauth_state" });
 
       // Mock global fetch for Feishu API calls
       const originalFetch = globalThis.fetch;
@@ -818,7 +859,7 @@ describe("Feishu OAuth2 endpoints", () => {
         },
       });
 
-      const state = jwt.sign({ nonce: "test" }, TEST_JWT_SECRET, { expiresIn: "5m" });
+      const state = jwt.sign({ nonce: "test" }, TEST_JWT_SECRET, { expiresIn: "5m", audience: "oauth_state" });
       const originalFetch = globalThis.fetch;
       globalThis.fetch = ((input: string | URL | Request, init?: RequestInit) => {
         const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
@@ -859,7 +900,7 @@ describe("Feishu OAuth2 endpoints", () => {
         },
       });
 
-      const state = jwt.sign({ nonce: "test" }, TEST_JWT_SECRET, { expiresIn: "5m" });
+      const state = jwt.sign({ nonce: "test" }, TEST_JWT_SECRET, { expiresIn: "5m", audience: "oauth_state" });
       const originalFetch = globalThis.fetch;
       globalThis.fetch = ((input: string | URL | Request, init?: RequestInit) => {
         const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
@@ -893,7 +934,7 @@ describe("Feishu OAuth2 endpoints", () => {
 
     it("handles Feishu token exchange failure", async () => {
       await startServer(FEISHU_CONFIG);
-      const state = jwt.sign({ nonce: "test" }, TEST_JWT_SECRET, { expiresIn: "5m" });
+      const state = jwt.sign({ nonce: "test" }, TEST_JWT_SECRET, { expiresIn: "5m", audience: "oauth_state" });
       const originalFetch = globalThis.fetch;
       globalThis.fetch = ((input: string | URL | Request, init?: RequestInit) => {
         const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
@@ -929,7 +970,7 @@ describe("Feishu OAuth2 endpoints", () => {
         },
       });
 
-      const state = jwt.sign({ nonce: "test" }, TEST_JWT_SECRET, { expiresIn: "5m" });
+      const state = jwt.sign({ nonce: "test" }, TEST_JWT_SECRET, { expiresIn: "5m", audience: "oauth_state" });
       const originalFetch = globalThis.fetch;
       globalThis.fetch = ((input: string | URL | Request, init?: RequestInit) => {
         const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;

@@ -53,7 +53,10 @@ export function createWebChatServer(
       res.status(401).json({ error: "Invalid password" });
       return;
     }
-    const token = jwt.sign({ sub: "webchat_user" }, config.jwtSecret, { expiresIn: "1h" });
+    const token = jwt.sign({ sub: "webchat_user" }, config.jwtSecret, {
+      expiresIn: "1h",
+      audience: "session",
+    });
     res.json({ token });
   });
 
@@ -81,7 +84,10 @@ export function createWebChatServer(
         return;
       }
       const userId = typeof req.query.user === "string" ? req.query.user : "test_user";
-      const token = jwt.sign({ sub: userId, auth_method: "test" }, config.jwtSecret, { expiresIn: "1h" });
+      const token = jwt.sign({ sub: userId, auth_method: "test" }, config.jwtSecret, {
+        expiresIn: "1h",
+        audience: "session",
+      });
       res.json({ token });
     });
   }
@@ -99,11 +105,13 @@ export function createWebChatServer(
       res.status(404).json({ error: "Feishu auth not configured" });
       return;
     }
-    // Self-contained state: signed JWT with nonce + timestamp (survives restarts)
+    // Self-contained state: signed JWT with nonce + timestamp (survives restarts).
+    // audience "oauth_state" isolates this token from session JWTs — so a leaked
+    // state JWT cannot be used as a session Bearer token.
     const state = jwt.sign(
       { nonce: randomBytes(16).toString("hex") },
       config.jwtSecret,
-      { expiresIn: "5m" },
+      { expiresIn: "5m", audience: "oauth_state" },
     );
     const authUrl = new URL("https://accounts.feishu.cn/open-apis/authen/v1/authorize");
     authUrl.searchParams.set("client_id", config.feishuAuth.appId);
@@ -129,7 +137,7 @@ export function createWebChatServer(
       return;
     }
     try {
-      jwt.verify(state, config.jwtSecret, { algorithms: ["HS256"] });
+      jwt.verify(state, config.jwtSecret, { algorithms: ["HS256"], audience: "oauth_state" });
     } catch {
       res.status(400).send(oauthErrorHtml("Invalid state", "CSRF state expired or invalid"));
       return;
@@ -214,7 +222,7 @@ export function createWebChatServer(
       const token = jwt.sign(
         { sub: userId, name, avatar_url: avatarUrl, auth_method: "feishu" },
         config.jwtSecret,
-        { expiresIn: "1h" },
+        { expiresIn: "1h", audience: "session" },
       );
 
       // Step 6: Return HTML page with localStorage write (NOT Set-Cookie — Safari/ITP)
@@ -380,7 +388,7 @@ export function createWebChatServer(
 function verifyToken(authHeader: string | undefined, secret: string): boolean {
   if (!authHeader?.startsWith("Bearer ")) return false;
   try {
-    jwt.verify(authHeader.slice(7), secret, { algorithms: ["HS256"] });
+    jwt.verify(authHeader.slice(7), secret, { algorithms: ["HS256"], audience: "session" });
     return true;
   } catch {
     return false;
@@ -390,7 +398,10 @@ function verifyToken(authHeader: string | undefined, secret: string): boolean {
 function decodeToken(token: string | null, secret: string): { sub: string; [k: string]: unknown } | null {
   if (!token) return null;
   try {
-    return jwt.verify(token, secret, { algorithms: ["HS256"] }) as { sub: string; [k: string]: unknown };
+    return jwt.verify(token, secret, {
+      algorithms: ["HS256"],
+      audience: "session",
+    }) as { sub: string; [k: string]: unknown };
   } catch {
     return null;
   }

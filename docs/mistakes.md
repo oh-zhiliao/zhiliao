@@ -57,3 +57,7 @@
 ## 14. 顺序轮询让一个失败阻塞所有
 
 **规则**: 轮询多个独立资源时用 `Promise.allSettled()` 而非顺序 `for...of`。对持续失败的资源加熔断器（指数退避），减少日志噪音和无效工作。
+
+## 15. 多用途 JWT 共享 secret 时必须用 `aud` 隔离
+
+**规则**: 同一 secret 签发多种用途的 JWT（如 OAuth state / session / API token）时，必须通过 `audience` claim 隔离。签发用 `{ audience: "xxx" }`，校验用 `{ algorithms: ["HS256"], audience: "xxx" }`。否则任意一处 JWT 泄露会被复用到其他鉴权入口（如 OAuth state JWT 被当作 session Bearer token 调 DELETE /api/sessions）。纵深防御，别指望调用者"不会拿错"。
