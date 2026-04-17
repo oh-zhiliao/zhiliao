@@ -54,7 +54,7 @@ export function createWebChatServer(
       return;
     }
     const token = jwt.sign({ sub: "webchat_user" }, config.jwtSecret, {
-      expiresIn: "1h",
+      expiresIn: "7d",
       audience: "session",
     });
     res.json({ token });
@@ -185,9 +185,12 @@ export function createWebChatServer(
         signal: AbortSignal.timeout(10000),
       });
       const userInfo = (await userInfoResp.json()) as any;
-      console.log("[Feishu OAuth] User info response:", JSON.stringify(userInfo));
+      // Log summary only — avoid dumping email/mobile/avatar_url to logs.
+      console.log(
+        `[Feishu OAuth] User info code=${userInfo.code}, fields=[${Object.keys(userInfo.data ?? {}).join(",")}]`,
+      );
       if (userInfo.code !== 0) {
-        console.error("[Feishu OAuth] User info failed:", JSON.stringify(userInfo));
+        console.error(`[Feishu OAuth] User info failed: code=${userInfo.code}, msg=${userInfo.msg ?? "(none)"}`);
         res.status(502).send(oauthErrorHtml("User info failed", userInfo.msg || "Unknown error"));
         return;
       }
@@ -202,7 +205,10 @@ export function createWebChatServer(
         console.warn(`[Feishu OAuth] ${fieldWarning} Available fields: ${Object.keys(feishuUser).join(", ")}.`);
       }
       const userId = rawValue || feishuUser.open_id || "";
-      console.log(`[Feishu OAuth] User: field=${userIdField}, value=${rawValue}, open_id=${feishuUser.open_id}, resolved=${userId}`);
+      // Mask userId in logs — it may be an email (PII) when userIdField=email.
+      console.log(
+        `[Feishu OAuth] User resolved: field=${userIdField}, has_value=${!!rawValue}, resolved=${maskUserId(userId)}`,
+      );
 
       // Step 4: Check allowlist
       const allowed = config.feishuAuth.allowedUsers;
@@ -210,7 +216,7 @@ export function createWebChatServer(
         const detail = fieldWarning
           ? `${fieldWarning} Your resolved ID (${userId}) does not match the allowlist.`
           : `Your account (${userId}) is not in the allowlist.`;
-        console.warn(`[Feishu OAuth] Access denied for ${userId} (allowlist: ${allowed.join(",")})`);
+        console.warn(`[Feishu OAuth] Access denied for ${maskUserId(userId)} (allowlist size=${allowed.length})`);
         res.status(403).send(oauthErrorHtml("Access denied", detail));
         return;
       }
@@ -218,11 +224,11 @@ export function createWebChatServer(
       // Step 5: Issue JWT
       const name = feishuUser.name || userId;
       const avatarUrl = feishuUser.avatar_url || "";
-      console.log(`[Feishu OAuth] Login success: userId=${userId}, name=${name}`);
+      console.log(`[Feishu OAuth] Login success: userId=${maskUserId(userId)}`);
       const token = jwt.sign(
         { sub: userId, name, avatar_url: avatarUrl, auth_method: "feishu" },
         config.jwtSecret,
-        { expiresIn: "1h", audience: "session" },
+        { expiresIn: "7d", audience: "session" },
       );
 
       // Step 6: Return HTML page with localStorage write (NOT Set-Cookie — Safari/ITP)
@@ -383,6 +389,17 @@ export function createWebChatServer(
       server.close();
     },
   };
+}
+
+/** Mask a user identifier for safe logging. Hides PII when userIdField=email. */
+function maskUserId(id: string): string {
+  if (!id) return "";
+  if (id.includes("@")) {
+    const [local, domain] = id.split("@");
+    return `${local.slice(0, 1)}***@${domain}`;
+  }
+  if (id.length > 10) return `${id.slice(0, 6)}***`;
+  return id;
 }
 
 function verifyToken(authHeader: string | undefined, secret: string): boolean {
