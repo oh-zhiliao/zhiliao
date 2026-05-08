@@ -4,6 +4,7 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class MemoConfig:
+    llm_provider: str
     llm_base_url: str
     llm_model: str
     llm_api_key: str
@@ -41,6 +42,7 @@ def load_config() -> MemoConfig:
     embedding_api_key = os.environ.get("MEMO_EMBEDDING_API_KEY", "") or emb_cfg.get("api_key", "") or api_key
 
     return MemoConfig(
+        llm_provider=os.environ.get("MEMO_LLM_PROVIDER", "") or memo_cfg.get("provider", "openai_compatible"),
         llm_base_url=llm_base,
         llm_model=os.environ.get("MEMO_LLM_MODEL", "") or memo_cfg.get("model", "deepseek-chat"),
         llm_api_key=api_key,

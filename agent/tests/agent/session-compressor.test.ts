@@ -49,6 +49,40 @@ describe("compressHistory", () => {
     expect(body.messages[0].content).toContain("JWT tokens");
   });
 
+  it("uses Anthropic-compatible messages API when configured", async () => {
+    const mockResponse = {
+      ok: true,
+      json: vi.fn().mockResolvedValue({
+        content: [{ type: "text", text: "Anthropic summary." }],
+      }),
+    };
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(mockResponse as any);
+
+    const result = await compressHistory(
+      {
+        apiKey: "test-token",
+        baseURL: "https://api.example.com/anthropic",
+        model: "GLM-4.7",
+        provider: "anthropic",
+      },
+      [{ role: "user", content: "Summarize this conversation" }]
+    );
+
+    expect(result).toBe("Anthropic summary.");
+
+    const [url, options] = (globalThis.fetch as any).mock.calls[0];
+    expect(url).toBe("https://api.example.com/anthropic/v1/messages");
+    expect(options.method).toBe("POST");
+    expect(options.headers["Authorization"]).toBe("Bearer test-token");
+    expect(options.headers["Content-Type"]).toBe("application/json");
+
+    const body = JSON.parse(options.body);
+    expect(body.model).toBe("GLM-4.7");
+    expect(body.messages).toHaveLength(1);
+    expect(body.messages[0].role).toBe("user");
+    expect(body.messages[0].content).toContain("Summarize this conversation");
+  });
+
   it("handles messages with tool_use and tool_result content blocks", async () => {
     const mockResponse = {
       ok: true,

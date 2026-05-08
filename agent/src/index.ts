@@ -95,6 +95,7 @@ async function main() {
       apiKey: config.llm.memo.api_key,
       baseURL: config.llm.memo.base_url,
       model: config.llm.memo.model,
+      provider: config.llm.memo.provider,
     });
   }
   console.log(`Agent model: ${config.llm.agent.model} | Tools: ${toolRegistry.getToolDefinitions().length} | Plugins: ${plugins.length}`);

@@ -1,12 +1,26 @@
 /**
  * Session history compressor — summarizes old conversation messages
- * using the cheaper memo LLM (OpenAI-compatible endpoint).
+ * using the cheaper memo LLM.
  */
 
 export interface CompressorConfig {
   apiKey: string;
   baseURL: string;
   model: string;
+  provider?: string;
+}
+
+function joinURL(baseURL: string, path: string): string {
+  return `${baseURL.replace(/\/+$/, "")}${path}`;
+}
+
+function extractAnthropicText(data: any): string {
+  const text = data.content
+    ?.filter((block: any) => block?.type === "text" && typeof block.text === "string")
+    .map((block: any) => block.text)
+    .join("")
+    .trim();
+  return text || "(摘要生成失败)";
 }
 
 export async function compressHistory(
@@ -33,7 +47,30 @@ export async function compressHistory(
 
   const prompt = `请将以下对话历史压缩为一段简洁的摘要，保留关键信息（讨论的主题、查看的文件、重要结论）。用中文回答。\n\n${textParts.join("\n")}`;
 
-  const resp = await fetch(`${config.baseURL}/chat/completions`, {
+  if (config.provider === "anthropic") {
+    const resp = await fetch(joinURL(config.baseURL, "/v1/messages"), {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${config.apiKey}`,
+      },
+      body: JSON.stringify({
+        model: config.model,
+        messages: [{ role: "user", content: prompt }],
+        max_tokens: 1024,
+      }),
+    });
+
+    if (!resp.ok) {
+      const body = await resp.text();
+      throw new Error(`Compressor LLM error ${resp.status}: ${body.slice(0, 200)}`);
+    }
+
+    const data = await resp.json() as any;
+    return extractAnthropicText(data);
+  }
+
+  const resp = await fetch(joinURL(config.baseURL, "/chat/completions"), {
     method: "POST",
     headers: {
       "Content-Type": "application/json",

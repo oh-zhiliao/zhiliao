@@ -55,6 +55,7 @@ async def lifespan(app: FastAPI):
         embedding_model=config.embedding_model,
         embedding_api_key=config.embedding_api_key,
         timeout=config.llm_timeout,
+        llm_provider=config.llm_provider,
     )
     state.indexer = CommitIndexer(store=state.store, llm=state.llm)
     state.search = HybridSearch(store=state.store, llm=state.llm)

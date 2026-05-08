@@ -1,5 +1,6 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 import numpy as np
 import openai
 import pytest
@@ -27,6 +28,38 @@ async def test_summarize(client):
     with patch.object(client._llm_client.chat.completions, "create", new_callable=AsyncMock, return_value=mock_response):
         result = await client.summarize("Summarize these commits:\n- feat: login\n- fix: password")
         assert result == "Summary of commits"
+
+
+@pytest.mark.asyncio
+async def test_summarize_with_anthropic_provider():
+    client = LLMClient(
+        llm_base_url="https://api.test.com/anthropic",
+        llm_model="GLM-4.7",
+        llm_api_key="test-token",
+        embedding_base_url="https://api.test.com/v1",
+        embedding_model="test-embed",
+        llm_provider="anthropic",
+    )
+
+    captured = {}
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        captured["request"] = request
+        return httpx.Response(
+            200,
+            json={"content": [{"type": "text", "text": "Anthropic memo summary."}]},
+        )
+
+    transport = httpx.MockTransport(handler)
+    async with httpx.AsyncClient(transport=transport) as mock_http:
+        client._http_client = mock_http
+        result = await client.summarize("Summarize these commits")
+
+    assert result == "Anthropic memo summary."
+    request = captured["request"]
+    assert str(request.url) == "https://api.test.com/anthropic/v1/messages"
+    assert request.headers["Authorization"] == "Bearer test-token"
+    assert request.headers["Content-Type"] == "application/json"
 
 
 @pytest.mark.asyncio
