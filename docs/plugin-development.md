@@ -539,7 +539,7 @@ cp my-plugin/config.example.yaml my-plugin/config.yaml
 
 ### 知识目录路径 (`knowledge_dir` 模式)
 
-如果插件加载本地知识文件（markdown 等），通过 `__dirname` + `fileURLToPath(import.meta.url)` 解析 `{plugin_root}/knowledge/` 是常见做法。但在**共享源码 + 符号链接**的部署场景下（见 `deployment.md`），插件 `src/` 通过 symlink 指向源码树，`__dirname` 经 realpath 解析后会回到源码树 —
+如果插件加载本地知识文件（markdown 等），通过 `__dirname` + `fileURLToPath(import.meta.url)` 解析 `{plugin_root}/knowledge/` 是常见做法。但在**共享源码 + 符号链接**的部署场景下（私有部署细节见对应的 `~/.config/zhiliao/*.env` 环境 profile），插件 `src/` 通过 symlink 指向源码树，`__dirname` 经 realpath 解析后会回到源码树 —
 此时部署目录下的 `plugins/<plugin>/knowledge/` 是**死代码**，不会被读取。
 
 为避免这个陷阱，**加载知识的插件**应提供 `knowledge_dir?: string` 配置字段：

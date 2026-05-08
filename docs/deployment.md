@@ -79,7 +79,16 @@ The setup script clones plugins into `plugins/`, creates data directories, and g
 
 ## Step 2: Configure
 
-All secrets go directly in config files (all gitignored). No `.env` needed for secrets.
+Agent-readable environment profiles live outside the repository under `~/.config/zhiliao/`, one file per environment:
+
+- `~/.config/zhiliao/test.env`
+- `~/.config/zhiliao/prod.env`
+
+These files are for coding/ops agents to read environment-specific descriptions, paths, commands, and constraints. They are not Docker Compose env files and are not sourced by deployment scripts.
+
+Deployment runtime env stays in the deployment directory. Deployment-local `.env`, `config.yaml`, plugin configs, and data directories remain beside the deployment checkout and are gitignored. Do not maintain a repo-root `deployment.md`; split environment-specific notes into the matching `~/.config/zhiliao/*.env` profile.
+
+All application secrets go directly in config files (all gitignored). Use deployment-local `.env` only for process/build variables used by scripts or by `${ENV_VAR}` substitution in plugin configs.
 
 **config.yaml** (main app):
 ```yaml
@@ -182,7 +191,7 @@ bash deploy-local.sh logs      # tail all logs (or: logs memo | logs agent)
 
 Logs are written to `data/logs/{memo,agent}.log`. PIDs in `data/pids/`.
 
-**Environment variables:** `.env` is auto-sourced by deploy-local.sh. Use it for plugin env vars:
+**Environment variables:** Deployment-local `.env` is auto-sourced by `deploy-local.sh`. Use it for plugin env vars:
 
 ```bash
 TENCENTCLOUD_SECRET_ID=...     # if cls-query plugin uses ${} substitution
@@ -296,10 +305,10 @@ what's the architecture of the API layer?
 
 ## Configuration Reference
 
-All secrets are stored in `config.yaml` (gitignored). The `.env` file only contains build-time settings:
+All application secrets are stored in `config.yaml` or plugin `config.yaml` files (gitignored). The Deployment-local `.env` file only contains build-time or process environment settings:
 
-| `.env` Variable | Default | Description |
-|-----------------|---------|-------------|
+| Env Variable | Default | Description |
+|--------------|---------|-------------|
 | `USE_CN_MIRROR` | `false` | Use China mirror for npm/pip/apt during build |
 
 ---

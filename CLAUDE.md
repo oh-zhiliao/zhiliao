@@ -69,8 +69,7 @@ cd memo && .venv/bin/python -m pytest tests/ -v
 cd agent && npx tsx src/index.ts ../config.yaml
 
 # Docker
-docker compose build
-docker compose up -d
+bash deploy.sh
 ```
 
 ## Architecture Note
@@ -111,4 +110,7 @@ All phases complete. Historical design docs in `docs/superpowers/` for reference
 
 # 部署
 
-- @deployment.md 具体的部署信息（通过 .gitignore 排除，不会提交到 repo）
+- Agent 读取的环境说明放在 `~/.config/zhiliao/`，每个环境一个文件，例如 `~/.config/zhiliao/test.env`、`~/.config/zhiliao/prod.env`
+- `~/.config/zhiliao/*.env` 是环境说明/上下文文件，和 Docker/Compose env file 无关，不由部署脚本 source
+- 旧 `deployment.md` 的内容应拆分进对应环境 profile；不要再维护 repo root 的 `deployment.md`
+- 部署运行时 `.env` 留在部署目录；`config.yaml`、插件配置、data 也都放在部署目录并通过 .gitignore 排除

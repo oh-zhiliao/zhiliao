@@ -14,7 +14,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
-# Source .env for plugin env vars (e.g. TENCENTCLOUD_SECRET_ID)
+# Source deployment-local .env for plugin env vars (e.g. TENCENTCLOUD_SECRET_ID).
 if [[ -f "$ROOT_DIR/.env" ]]; then
   set -a
   source "$ROOT_DIR/.env"
@@ -138,8 +138,9 @@ cmd_setup() {
   echo "Next steps:"
   echo "  1. Edit config.yaml with your secrets"
   echo "  2. Edit plugins/*/config.yaml with plugin-specific secrets"
-  echo "  3. Set up SSH deploy key: ssh-keygen -t ed25519 -f data/deploy_key -N ''"
-  echo "  4. bash deploy-local.sh start"
+  echo "  3. Put deployment runtime env vars in .env if needed"
+  echo "  4. Set up SSH deploy key: ssh-keygen -t ed25519 -f data/deploy_key -N ''"
+  echo "  5. bash deploy-local.sh start"
 }
 
 # ─── preflight ──────────────────────────────────────────────────────────────

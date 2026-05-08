@@ -36,11 +36,11 @@
 
 ## 9. 代码变更后忘记 rebuild + deploy
 
-**规则**: 代码变更 → `npm test` → `docker compose build` → `docker compose up -d` → 验证日志。四步闭环。
+**规则**: 代码变更 → `npm test` → `bash deploy.sh` → 验证日志。三步闭环；需要手动 compose 时在包含 `docker-compose.yml` 和部署 `.env` 的目录执行。
 
 ## 10. docker compose 在错误目录执行
 
-**规则**: 必须在 `docker-compose.yml` 和 `.env` 所在的项目根目录执行。部署后用 `docker ps | grep <name>` 确认只有一个实例在运行。排查"消息收不到"时，先检查是否有幽灵容器抢占 WebSocket。
+**规则**: 必须在 `docker-compose.yml` 和部署 `.env` 所在的部署目录执行。部署后用 `docker ps | grep <name>` 确认只有一个实例在运行。排查"消息收不到"时，先检查是否有幽灵容器抢占 WebSocket。
 
 ## 11. Prompt 禁止性指令导致模型拒绝正常功能
 

@@ -41,7 +41,7 @@ for plugin in "${PLUGINS[@]}"; do
   fi
 done
 
-# Create .env if not exists
+# Create deployment-local .env if not exists
 if [ ! -f .env ]; then
   echo "USE_CN_MIRROR=false" > .env
 fi
@@ -51,6 +51,7 @@ echo "=== Setup complete ==="
 echo "Next steps:"
 echo "  1. Edit config.yaml with your secrets"
 echo "  2. Edit plugins/*/config.yaml with plugin-specific secrets"
-echo "  3. Set up SSH deploy key: ssh-keygen -t ed25519 -f data/deploy_key -N ''"
-echo "  4. Add data/deploy_key.pub to your Git repos as a read-only deploy key"
-echo "  5. docker compose build && docker compose up -d"
+echo "  3. Put deployment runtime env vars in .env if needed"
+echo "  4. Set up SSH deploy key: ssh-keygen -t ed25519 -f data/deploy_key -N ''"
+echo "  5. Add data/deploy_key.pub to your Git repos as a read-only deploy key"
+echo "  6. bash deploy.sh"

@@ -55,13 +55,12 @@ Prerequisites: Node.js 22, Python 3.12+, a Feishu bot app with WebSocket enabled
 Docker deployment is also available:
 
 ```bash
-docker compose build
-docker compose up -d
+bash deploy.sh
 ```
 
 ## Configuration
 
-Single `config.yaml` file (gitignored, secrets inline). Supports `${ENV_VAR}` substitution.
+Single `config.yaml` file (gitignored, secrets inline). Supports `${ENV_VAR}` substitution. Agent-readable environment profiles live in files such as `~/.config/zhiliao/test.env` and `~/.config/zhiliao/prod.env`; deployment runtime `.env` stays in the deployment directory.
 
 ```yaml
 project:

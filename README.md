@@ -86,7 +86,7 @@ bash deploy-local.sh status   # 查看状态
 **Docker 部署**：
 
 ```bash
-docker compose build && docker compose up -d
+bash deploy.sh
 ```
 
 ### 5. 配置仓库
@@ -98,6 +98,8 @@ docker compose build && docker compose up -d
 ## 配置
 
 YAML 配置文件（gitignored），支持环境变量替换 `${VAR_NAME}`。关键字段：
+
+Agent 可读取的环境说明放在 `~/.config/zhiliao/test.env`、`~/.config/zhiliao/prod.env` 等文件；部署运行时 `.env` 仍留在部署目录。
 
 ```yaml
 project:
