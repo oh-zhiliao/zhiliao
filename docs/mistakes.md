@@ -61,3 +61,7 @@
 ## 15. 多用途 JWT 共享 secret 时必须用 `aud` 隔离
 
 **规则**: 同一 secret 签发多种用途的 JWT（如 OAuth state / session / API token）时，必须通过 `audience` claim 隔离。签发用 `{ audience: "xxx" }`，校验用 `{ algorithms: ["HS256"], audience: "xxx" }`。否则任意一处 JWT 泄露会被复用到其他鉴权入口（如 OAuth state JWT 被当作 session Bearer token 调 DELETE /api/sessions）。纵深防御，别指望调用者"不会拿错"。
+
+## 16. 切换 Provider 后持久化 Session 格式不兼容
+
+**规则**: 持久化的会话历史绑定了特定 LLM provider 的消息格式（OpenAI 用 `role: "tool"`，Anthropic 用 `role: "user" + tool_result`）。切换 provider 后旧 session 会导致 400 错误。代码必须在加载 session 时检测并迁移格式。
