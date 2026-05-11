@@ -287,6 +287,273 @@ describe("AgentInvoker (OpenAI-compatible)", () => {
   });
 });
 
+describe("migrateSessionHistory", () => {
+  // --- OpenAI → Anthropic migration ---
+
+  it("converts OpenAI tool messages to Anthropic tool_result format", () => {
+    const history = [
+      { role: "user", content: "What's in README?" },
+      {
+        role: "assistant",
+        content: "Let me read that.",
+        tool_calls: [
+          { id: "call_1", type: "function", function: { name: "git_file_read", arguments: '{"path":"README.md"}' } },
+        ],
+      },
+      { role: "tool", tool_call_id: "call_1", content: "# Hello World" },
+      { role: "assistant", content: "The README says Hello World." },
+    ];
+
+    const result = AgentInvoker.migrateSessionHistory(history, false);
+
+    // Assistant with tool_calls → assistant with content blocks
+    expect(result[1]).toEqual({
+      role: "assistant",
+      content: [
+        { type: "text", text: "Let me read that." },
+        { type: "tool_use", id: "call_1", name: "git_file_read", input: { path: "README.md" } },
+      ],
+    });
+
+    // tool message → user message with tool_result
+    expect(result[2]).toEqual({
+      role: "user",
+      content: [
+        { type: "tool_result", tool_use_id: "call_1", content: "# Hello World" },
+      ],
+    });
+
+    // Plain assistant message unchanged
+    expect(result[3]).toEqual({ role: "assistant", content: "The README says Hello World." });
+  });
+
+  it("groups consecutive OpenAI tool messages into one Anthropic user message", () => {
+    const history = [
+      { role: "user", content: "Read two files" },
+      {
+        role: "assistant",
+        content: null,
+        tool_calls: [
+          { id: "call_1", type: "function", function: { name: "file_read", arguments: '{"path":"a.txt"}' } },
+          { id: "call_2", type: "function", function: { name: "file_read", arguments: '{"path":"b.txt"}' } },
+        ],
+      },
+      { role: "tool", tool_call_id: "call_1", content: "content A" },
+      { role: "tool", tool_call_id: "call_2", content: "content B" },
+      { role: "assistant", content: "Done." },
+    ];
+
+    const result = AgentInvoker.migrateSessionHistory(history, false);
+
+    // Two consecutive tool messages should be grouped into one user message
+    expect(result[2]).toEqual({
+      role: "user",
+      content: [
+        { type: "tool_result", tool_use_id: "call_1", content: "content A" },
+        { type: "tool_result", tool_use_id: "call_2", content: "content B" },
+      ],
+    });
+
+    // Total length should be 4 (user, assistant, grouped-user, assistant)
+    expect(result.length).toBe(4);
+  });
+
+  // --- Anthropic → OpenAI migration ---
+
+  it("converts Anthropic tool_result to OpenAI tool messages", () => {
+    const history = [
+      { role: "user", content: "What's in README?" },
+      {
+        role: "assistant",
+        content: [
+          { type: "text", text: "Let me read that." },
+          { type: "tool_use", id: "call_1", name: "git_file_read", input: { path: "README.md" } },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          { type: "tool_result", tool_use_id: "call_1", content: "# Hello World" },
+        ],
+      },
+      { role: "assistant", content: [{ type: "text", text: "The README says Hello World." }] },
+    ];
+
+    const result = AgentInvoker.migrateSessionHistory(history, true);
+
+    // Assistant with tool_use content blocks → assistant with tool_calls
+    expect(result[1]).toEqual({
+      role: "assistant",
+      content: "Let me read that.",
+      tool_calls: [
+        { id: "call_1", type: "function", function: { name: "git_file_read", arguments: '{"path":"README.md"}' } },
+      ],
+    });
+
+    // User with tool_result → tool messages
+    expect(result[2]).toEqual({
+      role: "tool",
+      tool_call_id: "call_1",
+      content: "# Hello World",
+    });
+
+    // Plain Anthropic assistant → OpenAI text content
+    expect(result[3]).toEqual({
+      role: "assistant",
+      content: "The README says Hello World.",
+      tool_calls: undefined,
+    });
+  });
+
+  it("expands Anthropic multi-tool_result user message into multiple OpenAI tool messages", () => {
+    const history = [
+      { role: "user", content: "Read files" },
+      {
+        role: "assistant",
+        content: [
+          { type: "tool_use", id: "call_1", name: "file_read", input: { path: "a.txt" } },
+          { type: "tool_use", id: "call_2", name: "file_read", input: { path: "b.txt" } },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          { type: "tool_result", tool_use_id: "call_1", content: "content A" },
+          { type: "tool_result", tool_use_id: "call_2", content: "content B" },
+        ],
+      },
+    ];
+
+    const result = AgentInvoker.migrateSessionHistory(history, true);
+
+    // One user message with 2 tool_results → 2 separate tool messages
+    expect(result[2]).toEqual({ role: "tool", tool_call_id: "call_1", content: "content A" });
+    expect(result[3]).toEqual({ role: "tool", tool_call_id: "call_2", content: "content B" });
+    expect(result.length).toBe(4);
+  });
+
+  // --- No-op when format matches ---
+
+  it("does not modify history already in Anthropic format", () => {
+    const history = [
+      { role: "user", content: "Hi" },
+      {
+        role: "assistant",
+        content: [
+          { type: "text", text: "Let me check." },
+          { type: "tool_use", id: "call_1", name: "search", input: { q: "test" } },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          { type: "tool_result", tool_use_id: "call_1", content: "results" },
+        ],
+      },
+      { role: "assistant", content: [{ type: "text", text: "Here are results." }] },
+    ];
+
+    const original = JSON.parse(JSON.stringify(history));
+    const result = AgentInvoker.migrateSessionHistory(history, false);
+    expect(result).toEqual(original);
+  });
+
+  it("does not modify history already in OpenAI format", () => {
+    const history = [
+      { role: "user", content: "Hi" },
+      {
+        role: "assistant",
+        content: "Let me check.",
+        tool_calls: [
+          { id: "call_1", type: "function", function: { name: "search", arguments: '{"q":"test"}' } },
+        ],
+      },
+      { role: "tool", tool_call_id: "call_1", content: "results" },
+      { role: "assistant", content: "Here are results." },
+    ];
+
+    const original = JSON.parse(JSON.stringify(history));
+    const result = AgentInvoker.migrateSessionHistory(history, true);
+    expect(result).toEqual(original);
+  });
+
+  // --- Mixed history (plain messages pass through) ---
+
+  it("passes through regular user/assistant text messages unchanged", () => {
+    const history = [
+      { role: "user", content: "Hello" },
+      { role: "assistant", content: "Hi there!" },
+      { role: "user", content: "How are you?" },
+      { role: "assistant", content: "I'm fine." },
+    ];
+
+    const resultAnthropic = AgentInvoker.migrateSessionHistory(history, false);
+    expect(resultAnthropic).toEqual(history);
+
+    const resultOpenAI = AgentInvoker.migrateSessionHistory(history, true);
+    expect(resultOpenAI).toEqual(history);
+  });
+
+  // --- Edge case: empty history ---
+
+  it("returns empty array for empty history", () => {
+    expect(AgentInvoker.migrateSessionHistory([], true)).toEqual([]);
+    expect(AgentInvoker.migrateSessionHistory([], false)).toEqual([]);
+  });
+
+  // --- Edge case: assistant with null content + tool_calls ---
+
+  it("handles OpenAI assistant with null content during migration to Anthropic", () => {
+    const history = [
+      { role: "user", content: "Do something" },
+      {
+        role: "assistant",
+        content: null,
+        tool_calls: [
+          { id: "call_1", type: "function", function: { name: "action", arguments: '{}' } },
+        ],
+      },
+      { role: "tool", tool_call_id: "call_1", content: "done" },
+    ];
+
+    const result = AgentInvoker.migrateSessionHistory(history, false);
+
+    // null content → no text block, only tool_use
+    expect(result[1]).toEqual({
+      role: "assistant",
+      content: [
+        { type: "tool_use", id: "call_1", name: "action", input: {} },
+      ],
+    });
+  });
+
+  // --- Edge case: malformed arguments ---
+
+  it("handles malformed tool_calls arguments gracefully", () => {
+    const history = [
+      { role: "user", content: "Do something" },
+      {
+        role: "assistant",
+        content: null,
+        tool_calls: [
+          { id: "call_1", type: "function", function: { name: "action", arguments: "not-valid-json" } },
+        ],
+      },
+      { role: "tool", tool_call_id: "call_1", content: "done" },
+    ];
+
+    const result = AgentInvoker.migrateSessionHistory(history, false);
+
+    // Should fallback to empty object for malformed JSON
+    expect(result[1]).toEqual({
+      role: "assistant",
+      content: [
+        { type: "tool_use", id: "call_1", name: "action", input: {} },
+      ],
+    });
+  });
+});
+
 describe("loadSoulPrompt", () => {
   it("returns DEFAULT_SOUL_PROMPT when file is missing", () => {
     const result = AgentInvoker.loadSoulPrompt("/nonexistent/path");

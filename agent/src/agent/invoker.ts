@@ -982,8 +982,12 @@ export class AgentInvoker {
             }
           }
         }
+
+        // Migrate session history if provider format changed
+        const migratedHistory = AgentInvoker.migrateSessionHistory(history, this.isOpenAI);
+
         return {
-          history,
+          history: migratedHistory,
           lastAccessedAt: row.lastAccessedAt,
           createdAt: row.createdAt,
           totalInputTokens: row.totalInputTokens,
@@ -1144,6 +1148,170 @@ export class AgentInvoker {
       return this.db.cleanExpiredSessions(SESSION_TTL_MS);
     }
     return 0;
+  }
+
+  /**
+   * Migrate session history between provider formats.
+   * Pure, idempotent — only converts messages that are in the wrong format.
+   * @param history - The session message history array
+   * @param isOpenAI - true if current provider is openai_compatible, false if anthropic
+   * @returns migrated history (new array, original not mutated)
+   */
+  static migrateSessionHistory(history: any[], isOpenAI: boolean): any[] {
+    if (history.length === 0) return [];
+
+    // Detect if migration is needed by scanning for foreign-format messages
+    let needsMigration = false;
+
+    if (isOpenAI) {
+      // Current provider is OpenAI — check for Anthropic format messages
+      for (const msg of history) {
+        // Anthropic assistant: content is an array with tool_use blocks
+        if (msg.role === "assistant" && Array.isArray(msg.content) &&
+            msg.content.some((b: any) => b.type === "tool_use")) {
+          needsMigration = true;
+          break;
+        }
+        // Anthropic user: content is an array with tool_result blocks
+        if (msg.role === "user" && Array.isArray(msg.content) &&
+            msg.content.some((b: any) => b.type === "tool_result")) {
+          needsMigration = true;
+          break;
+        }
+      }
+    } else {
+      // Current provider is Anthropic — check for OpenAI format messages
+      for (const msg of history) {
+        // OpenAI tool message
+        if (msg.role === "tool") {
+          needsMigration = true;
+          break;
+        }
+        // OpenAI assistant with tool_calls array
+        if (msg.role === "assistant" && Array.isArray(msg.tool_calls) && msg.tool_calls.length > 0) {
+          needsMigration = true;
+          break;
+        }
+      }
+    }
+
+    if (!needsMigration) return history;
+
+    console.log(`[session-migration] Migrating session history (${history.length} messages) to ${isOpenAI ? "OpenAI" : "Anthropic"} format`);
+
+    if (isOpenAI) {
+      return AgentInvoker.migrateAnthropicToOpenAI(history);
+    } else {
+      return AgentInvoker.migrateOpenAIToAnthropic(history);
+    }
+  }
+
+  /** Convert Anthropic-format messages to OpenAI format */
+  private static migrateAnthropicToOpenAI(history: any[]): any[] {
+    const result: any[] = [];
+
+    for (const msg of history) {
+      if (msg.role === "assistant" && Array.isArray(msg.content)) {
+        // Anthropic assistant with content blocks → OpenAI assistant
+        const textParts: string[] = [];
+        const toolCalls: any[] = [];
+
+        for (const block of msg.content) {
+          if (block.type === "text") {
+            textParts.push(block.text ?? "");
+          } else if (block.type === "tool_use") {
+            toolCalls.push({
+              id: block.id,
+              type: "function",
+              function: {
+                name: block.name,
+                arguments: JSON.stringify(block.input ?? {}),
+              },
+            });
+          }
+        }
+
+        result.push({
+          role: "assistant" as const,
+          content: textParts.join("\n") || null,
+          tool_calls: toolCalls.length > 0 ? toolCalls : undefined,
+        });
+      } else if (msg.role === "user" && Array.isArray(msg.content) &&
+                 msg.content.some((b: any) => b.type === "tool_result")) {
+        // Anthropic user with tool_result → OpenAI tool messages (expand)
+        for (const block of msg.content) {
+          if (block.type === "tool_result") {
+            result.push({
+              role: "tool" as const,
+              tool_call_id: block.tool_use_id,
+              content: block.content ?? "",
+            });
+          }
+        }
+      } else {
+        // Pass through unchanged
+        result.push(msg);
+      }
+    }
+
+    return result;
+  }
+
+  /** Convert OpenAI-format messages to Anthropic format */
+  private static migrateOpenAIToAnthropic(history: any[]): any[] {
+    const result: any[] = [];
+
+    for (let i = 0; i < history.length; i++) {
+      const msg = history[i];
+
+      if (msg.role === "assistant" && Array.isArray(msg.tool_calls) && msg.tool_calls.length > 0) {
+        // OpenAI assistant with tool_calls → Anthropic assistant with content blocks
+        const content: any[] = [];
+
+        if (msg.content) {
+          content.push({ type: "text", text: msg.content });
+        }
+
+        for (const tc of msg.tool_calls) {
+          let input: Record<string, any> = {};
+          if (tc.function?.arguments) {
+            try { input = JSON.parse(tc.function.arguments); } catch { /* use empty */ }
+          }
+          content.push({
+            type: "tool_use",
+            id: tc.id,
+            name: tc.function?.name ?? "",
+            input,
+          });
+        }
+
+        result.push({ role: "assistant", content });
+      } else if (msg.role === "tool") {
+        // OpenAI tool message → group consecutive tool messages into one Anthropic user message
+        const toolResults: any[] = [{
+          type: "tool_result",
+          tool_use_id: msg.tool_call_id,
+          content: msg.content ?? "",
+        }];
+
+        // Collect consecutive tool messages
+        while (i + 1 < history.length && history[i + 1].role === "tool") {
+          i++;
+          toolResults.push({
+            type: "tool_result",
+            tool_use_id: history[i].tool_call_id,
+            content: history[i].content ?? "",
+          });
+        }
+
+        result.push({ role: "user", content: toolResults });
+      } else {
+        // Pass through unchanged
+        result.push(msg);
+      }
+    }
+
+    return result;
   }
 
   static loadSystemPrompt(agentDir: string): string {
