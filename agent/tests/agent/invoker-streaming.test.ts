@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { AgentInvoker, type AgentConfig } from "../../src/agent/invoker.js";
 
+const TOOL_LIMIT_CONTINUE_PROMPT = "任务似乎比较复杂，目前达到了执行限制，是否要继续执行？如需继续，可以直接回复或补充新的要求。";
+
 // Helper to create an async iterable of Anthropic streaming events
 function createAnthropicStream(events: any[]): AsyncIterable<any> {
   return {
@@ -137,6 +139,51 @@ describe("AgentInvoker.askStreaming", () => {
     expect(events).toEqual(["start:test.search", "end:test.search", "complete:Found it"]);
   });
 
+  it("continues tool loop when streaming response has tool_use blocks but stop_reason is end_turn", async () => {
+    const events: string[] = [];
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const mockTools = {
+      getToolDefinitions: () => [{ name: "test.search", description: "search", input_schema: { type: "object", properties: {} } }],
+      executeTool: vi.fn().mockResolvedValue("search result"),
+      isCheapTool: () => false,
+      summarizeToolInput: () => "query",
+      getSystemPromptAddendum: () => "",
+      hasTool: () => false,
+      filterOutput: (t: string) => t,
+    };
+    invoker.setTools(mockTools as any);
+
+    let callCount = 0;
+    mockAnthropicCreate.mockImplementation(async () => {
+      callCount++;
+      if (callCount === 1) {
+        const events = toolUseResponseEvents([{ id: "t1", name: "test.search", input: { query: "test" } }]);
+        events[events.length - 1] = {
+          type: "message_delta",
+          delta: { stop_reason: "end_turn" },
+          usage: { output_tokens: 5 },
+        };
+        return createAnthropicStream(events);
+      }
+      return createAnthropicStream(textResponseEvents("Found it"));
+    });
+
+    const result = await invoker.askStreaming("search for test", "test-session-2b", {
+      onToolStart: (name) => events.push(`start:${name}`),
+      onToolEnd: (name) => events.push(`end:${name}`),
+      onComplete: (t) => events.push(`complete:${t}`),
+    });
+
+    expect(result).toBe("Found it");
+    expect(events).toEqual(["start:test.search", "end:test.search", "complete:Found it"]);
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[test-session-2b] streaming llm returned tool calls with stop=end_turn; treating response as tool_use'
+    );
+
+    warnSpy.mockRestore();
+  });
+
   it("respects AbortSignal for cancellation", async () => {
     const controller = new AbortController();
     controller.abort();
@@ -173,6 +220,43 @@ describe("AgentInvoker.askStreaming", () => {
 
     expect(result).toBe("(空回复，请重试)");
     expect(completeText).toBe("(空回复，请重试)");
+  });
+
+  it("returns continue prompt after streaming tool limit is reached", async () => {
+    invoker = new AgentInvoker({
+      ...config,
+      maxToolIterations: 5,
+    });
+
+    const mockTools = {
+      getToolDefinitions: () => [{ name: "test.search", description: "search", input_schema: { type: "object", properties: {} } }],
+      executeTool: vi.fn().mockResolvedValue("search result"),
+      isCheapTool: () => false,
+      summarizeToolInput: () => "query",
+      getSystemPromptAddendum: () => "",
+      hasTool: () => false,
+      filterOutput: (t: string) => t,
+    };
+    invoker.setTools(mockTools as any);
+
+    let completeText = "";
+    let callCount = 0;
+    mockAnthropicCreate.mockImplementation(async () => {
+      callCount++;
+      if (callCount <= 5) {
+        return createAnthropicStream(
+          toolUseResponseEvents([{ id: `t${callCount}`, name: "test.search", input: { query: "test" } }]),
+        );
+      }
+      return createAnthropicStream(textResponseEvents("已确认当前没有满足条件的数据。"));
+    });
+
+    const result = await invoker.askStreaming("search for test", "test-session-limit-1", {
+      onComplete: (t) => { completeText = t; },
+    });
+
+    expect(result).toBe(TOOL_LIMIT_CONTINUE_PROMPT);
+    expect(completeText).toBe(TOOL_LIMIT_CONTINUE_PROMPT);
   });
 
   it("returns unfiltered text (caller handles filtering)", async () => {

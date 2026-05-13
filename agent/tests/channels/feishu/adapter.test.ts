@@ -357,6 +357,61 @@ describe("FeishuAdapter", () => {
     expect(mockAgent.ask).toHaveBeenCalled();
   });
 
+  it("extracts plain text from feishu post content", async () => {
+    await adapter.handleMessage({
+      sender: { sender_id: { open_id: "ou_user1" }, sender_type: "user" },
+      message: {
+        message_id: "om_post1",
+        chat_id: "oc_dm1",
+        chat_type: "p2p",
+        message_type: "post",
+        content: JSON.stringify({
+          zh_cn: {
+            title: "",
+            content: [
+              [{ tag: "text", text: "给我10个满足以下条件的手机号" }],
+              [{ tag: "text", text: "1.存在期次是M1的有效保单" }],
+              [{ tag: "text", text: "2.存在二次进线" }],
+            ],
+          },
+        }),
+      },
+    } as any);
+
+    expect(mockAgent.ask).toHaveBeenCalledWith(
+      "给我10个满足以下条件的手机号\n1.存在期次是M1的有效保单\n2.存在二次进线",
+      expect.any(String),
+      expect.any(Function)
+    );
+    expect(sentMessages.length).toBe(1);
+    expect(sentMessages[0].content).toContain("Answer to:");
+  });
+
+  it("warns and replies when message content cannot be extracted in DM", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await adapter.handleMessage({
+      sender: { sender_id: { open_id: "ou_user1" }, sender_type: "user" },
+      message: {
+        message_id: "om_unsupported1",
+        chat_id: "oc_dm1",
+        chat_type: "p2p",
+        message_type: "interactive",
+        content: JSON.stringify({ foo: "bar" }),
+      },
+    } as any);
+
+    expect(mockAgent.ask).not.toHaveBeenCalled();
+    expect(sentMessages.length).toBe(1);
+    expect(sentMessages[0].content).toContain("暂不支持该消息格式");
+    expect(sentMessages[0].content).toContain("[logId: ");
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("unsupported feishu message content")
+    );
+
+    warnSpy.mockRestore();
+  });
+
   it("applies toolRegistry.filterOutput to agent response", async () => {
     mockAgent.ask.mockResolvedValueOnce({
       text: "The server is at internal.host.example.com",
@@ -381,6 +436,74 @@ describe("FeishuAdapter", () => {
     expect(sentMessages[0].content).toContain("***");
     expect(sentMessages[0].content).not.toContain("internal.host.example.com");
     expect(mockToolRegistry.filterOutput).toHaveBeenCalled();
+  });
+
+  it("does not append logId to normal agent replies", async () => {
+    mockAgent.ask.mockResolvedValueOnce({
+      text: "正常回复内容",
+      sessionId: "s1",
+    });
+
+    await adapter.handleMessage({
+      sender: { sender_id: { open_id: "ou_user1" }, sender_type: "user" },
+      message: {
+        message_id: "om_normal1",
+        chat_id: "oc_dm1",
+        chat_type: "p2p",
+        message_type: "text",
+        content: JSON.stringify({ text: "hello" }),
+      },
+    } as any);
+
+    expect(sentMessages).toHaveLength(1);
+    expect(sentMessages[0].content).toContain("正常回复内容");
+    expect(sentMessages[0].content).not.toContain("[logId:");
+  });
+
+  it("appends logId to fallback no-reply protection text", async () => {
+    mockAgent.ask.mockResolvedValueOnce({
+      text: "问题较复杂，已达到工具调用上限，请缩小范围或分步提问后重试。",
+      sessionId: "s1",
+    });
+
+    await adapter.handleMessage({
+      sender: { sender_id: { open_id: "ou_user1" }, sender_type: "user" },
+      message: {
+        message_id: "om_fallback_logid",
+        chat_id: "oc_dm1",
+        chat_type: "p2p",
+        message_type: "text",
+        content: JSON.stringify({ text: "hello" }),
+      },
+    } as any);
+
+    expect(sentMessages).toHaveLength(1);
+    expect(sentMessages[0].content).toContain("已达到工具调用上限");
+    expect(sentMessages[0].content).toContain("[logId: ");
+  });
+
+  it("shows limit progress in basic debug mode", async () => {
+    mockAgent.ask.mockImplementationOnce(async (_q: string, _sessionId: string, onProgress?: (info: string) => void) => {
+      onProgress?.("tool: mysql-query.query(summary)");
+      onProgress?.("limit: expensive=3/3 total=8 awaiting_user_confirmation");
+      return {
+        text: "任务似乎比较复杂，目前达到了执行限制，是否要继续执行？如需继续，可以直接回复或补充新的要求。",
+        sessionId: "s1",
+      };
+    });
+
+    await adapter.handleMessage({
+      sender: { sender_id: { open_id: "ou_user1" }, sender_type: "user" },
+      message: {
+        message_id: "om_debug_limit",
+        chat_id: "oc_dm1",
+        chat_type: "p2p",
+        message_type: "text",
+        content: JSON.stringify({ text: "/debug hello" }),
+      },
+    } as any);
+
+    expect(sentMessages.some((msg) => msg.content.includes("[debug] limit: expensive=3/3 total=8 awaiting_user_confirmation"))).toBe(true);
   });
 
   it("handles /new session command in DM", async () => {

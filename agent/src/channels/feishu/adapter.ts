@@ -10,9 +10,101 @@ import { filterSecrets } from "./secret-filter.js";
 
 const DEDUP_TTL_MS = 5 * 60 * 1000; // 5 minutes
 const DEFAULT_MAX_MESSAGE_AGE_MS = 30 * 1000; // 30 seconds
+const AGENT_FALLBACK_MARKERS = [
+  "问题较复杂，已达到工具调用上限，请缩小范围或分步提问后重试。",
+  "(无法生成回复，请重试)",
+  "(空回复，请重试)",
+];
+const UNSUPPORTED_MESSAGE_REPLY = "暂不支持该消息格式，请发送纯文本或飞书富文本消息。";
 
 function genLogId(): string {
   return randomUUID().replace(/-/g, "").slice(0, 16);
+}
+
+function shouldAppendLogId(text: string): boolean {
+  return AGENT_FALLBACK_MARKERS.some((marker) => text.includes(marker)) && !text.includes("[logId:");
+}
+
+function appendLogId(text: string, logId: string): string {
+  return `${text}\n[logId: ${logId}]`;
+}
+
+function extractInlineText(node: unknown): string {
+  if (Array.isArray(node)) {
+    return node.map((item) => extractInlineText(item)).join("");
+  }
+  if (!node || typeof node !== "object") {
+    return "";
+  }
+
+  const record = node as Record<string, unknown>;
+  if (typeof record.text === "string") {
+    return record.text;
+  }
+  if (typeof record.content === "string") {
+    return record.content;
+  }
+  if (typeof record.user_name === "string") {
+    return `@${record.user_name}`;
+  }
+  if (Array.isArray(record.content)) {
+    return extractInlineText(record.content);
+  }
+
+  return "";
+}
+
+function extractTextFromPostDocument(doc: unknown): string {
+  if (!doc || typeof doc !== "object") {
+    return "";
+  }
+
+  const record = doc as Record<string, unknown>;
+  if (!Array.isArray(record.content)) {
+    return "";
+  }
+
+  const lines = record.content
+    .map((row) => extractInlineText(row).trim())
+    .filter(Boolean);
+
+  return lines.join("\n");
+}
+
+function extractFeishuTextContent(rawContent: string): string | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(rawContent);
+  } catch {
+    return null;
+  }
+
+  if (!parsed || typeof parsed !== "object") {
+    return null;
+  }
+
+  const record = parsed as Record<string, unknown>;
+  if (typeof record.text === "string") {
+    return record.text;
+  }
+
+  const postCandidates: unknown[] = [];
+  if (record.post) {
+    postCandidates.push(record.post);
+  }
+  postCandidates.push(parsed);
+  for (const value of Object.values(record)) {
+    postCandidates.push(value);
+  }
+
+  for (const candidate of postCandidates) {
+    const text = extractTextFromPostDocument(candidate);
+    if (text) {
+      return text;
+    }
+  }
+
+  return null;
 }
 
 export interface FeishuAdapterDeps {
@@ -60,14 +152,29 @@ export class FeishuAdapter {
 
     const senderId = data.sender.sender_id?.open_id ?? data.sender.sender_id?.user_id ?? "";
     const chatType = msg.chat_type as "group" | "p2p";
+    const ctx: FeishuMessageContext = {
+      chatId: msg.chat_id,
+      chatType,
+      threadId: msg.thread_id,
+      senderId,
+      senderName: "",
+      messageId: msg.message_id,
+      logId,
+      debugLevel: 0,
+    };
 
     // Parse text content
-    let text: string;
-    try {
-      const parsed = JSON.parse(msg.content);
-      text = parsed.text ?? "";
-    } catch {
-      return; // Non-text message, ignore
+    let text = extractFeishuTextContent(msg.content);
+    if (text === null) {
+      console.warn(
+        `[${logId}] unsupported feishu message content type=${msg.message_type} chatType=${chatType} msgId=${msg.message_id}`
+      );
+      const botOpenId = this.deps.client.getBotOpenId();
+      const botMentioned = msg.mentions?.some((m) => m.id?.open_id === botOpenId) ?? false;
+      if (chatType === "p2p" || botMentioned) {
+        await this.replySafe(ctx, appendLogId(UNSUPPORTED_MESSAGE_REPLY, logId));
+      }
+      return;
     }
 
     // Strip @mention placeholders from text (must happen before /debug check,
@@ -91,17 +198,7 @@ export class FeishuAdapter {
     }
 
     if (!text) return; // Empty after stripping
-
-    const ctx: FeishuMessageContext = {
-      chatId: msg.chat_id,
-      chatType,
-      threadId: msg.thread_id,
-      senderId,
-      senderName: "",
-      messageId: msg.message_id,
-      logId,
-      debugLevel,
-    };
+    ctx.debugLevel = debugLevel;
 
     console.log(`[${logId}] recv ${chatType} msg from=${senderId} chat=${msg.chat_id} msgId=${msg.message_id} debug=${debugLevel > 0} text=${JSON.stringify(text.slice(0, 100))}`);
 
@@ -237,17 +334,23 @@ export class FeishuAdapter {
       if (ctx.debugLevel >= 2) {
         // Verbose: show everything (auto-inject, tool results, etc.)
         this.replySafe(ctx, `[debug] ${info}`);
-      } else if (ctx.debugLevel >= 1 && info.startsWith("tool:")) {
-        // Basic: only show tool call names
+      } else if (ctx.debugLevel >= 1 && (info.startsWith("tool:") || info.startsWith("limit:"))) {
+        // Basic: show tool call names and explicit tool-limit events
         this.replySafe(ctx, `[debug] ${info}`);
       }
     };
 
     try {
       const response = await this.deps.agent.ask(question, sessionKey, onProgress);
-      const secretFiltered = filterSecrets(response.text, this.deps.secretPatterns);
+      const replyText = shouldAppendLogId(response.text)
+        ? appendLogId(response.text, ctx.logId)
+        : response.text;
+      if (replyText !== response.text) {
+        console.warn(`[${ctx.logId}] agent fallback reply returned to user: ${JSON.stringify(response.text)}`);
+      }
+      const secretFiltered = filterSecrets(replyText, this.deps.secretPatterns);
       const filtered = this.deps.toolRegistry.filterOutput(secretFiltered);
-      console.log(`[${ctx.logId}] agent reply len=${response.text.length} filtered=${filtered !== response.text}`);
+      console.log(`[${ctx.logId}] agent reply len=${replyText.length} filtered=${filtered !== replyText}`);
       await this.reply(ctx, filtered);
     } catch (e: any) {
       const code = e.status ?? e.code ?? "UNKNOWN";

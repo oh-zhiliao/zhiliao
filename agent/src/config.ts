@@ -10,7 +10,7 @@ export interface ZhiliaoConfig {
     max_message_age_seconds?: number;
   };
   llm: {
-    agent: { provider: string; model: string; base_url?: string; api_key?: string };
+    agent: { provider: string; model: string; base_url?: string; api_key?: string; max_tool_iterations?: number };
     memo: { provider: string; base_url: string; model: string; api_key?: string };
     embedding: { provider: string; base_url: string; model: string };
   };
@@ -67,6 +67,13 @@ function validateConfig(config: unknown): asserts config is ZhiliaoConfig {
     throw new Error(
       `Invalid config: missing required fields: ${missing.map(([k]) => k).join(", ")}`
     );
+  }
+
+  const maxToolIterations = c?.llm?.agent?.max_tool_iterations;
+  if (maxToolIterations !== undefined) {
+    if (!Number.isInteger(maxToolIterations) || maxToolIterations <= 0) {
+      throw new Error("Invalid config: llm.agent.max_tool_iterations must be a positive integer");
+    }
   }
 }
 

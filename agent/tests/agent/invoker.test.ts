@@ -5,6 +5,8 @@ import { mkdtempSync, writeFileSync, rmSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
 
+const TOOL_LIMIT_CONTINUE_PROMPT = "任务似乎比较复杂，目前达到了执行限制，是否要继续执行？如需继续，可以直接回复或补充新的要求。";
+
 // Mock the Anthropic SDK
 const mockAnthropicCreate = vi.fn();
 vi.mock("@anthropic-ai/sdk", () => {
@@ -91,6 +93,34 @@ describe("AgentInvoker (Anthropic)", () => {
     expect(mockAnthropicCreate).toHaveBeenCalledTimes(2);
   });
 
+  it("treats tool calls as actionable even when stop_reason is end_turn", async () => {
+    mockAnthropicCreate.mockResolvedValueOnce({
+      content: [
+        { type: "tool_use", id: "call_1", name: "git_file_read", input: { repo: "proj", path: "README.md" } },
+      ],
+      stop_reason: "end_turn",
+      usage: { input_tokens: 10, output_tokens: 5 },
+    });
+
+    mockAnthropicCreate.mockResolvedValueOnce({
+      content: [{ type: "text", text: "The README says: file contents here" }],
+      stop_reason: "end_turn",
+      usage: { input_tokens: 10, output_tokens: 5 },
+    });
+
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const result = await invoker.ask("What's in the README?", "session-2b");
+    expect(result.text).toBe("The README says: file contents here");
+    expect(mockTools.executeTool).toHaveBeenCalledWith("git_file_read", { repo: "proj", path: "README.md" });
+    expect(mockAnthropicCreate).toHaveBeenCalledTimes(2);
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[session-2b] llm returned tool calls with stop=end_turn; treating response as tool_use'
+    );
+
+    warnSpy.mockRestore();
+  });
+
   it("limits tool loop iterations to prevent infinite loops", async () => {
     // Use memory_search (an expensive/non-cheap tool) to test the safety limit
     mockAnthropicCreate.mockResolvedValue({
@@ -102,8 +132,98 @@ describe("AgentInvoker (Anthropic)", () => {
     });
 
     const result = await invoker.ask("loop forever", "session-3");
-    // MAX_TOOL_ITERATIONS expensive iterations + 1 final summary call (without tools)
-    expect(mockAnthropicCreate.mock.calls.length).toBe(MAX_TOOL_ITERATIONS + 1);
+    expect(mockAnthropicCreate.mock.calls.length).toBe(MAX_TOOL_ITERATIONS);
+    expect(result.text).toBe(TOOL_LIMIT_CONTINUE_PROMPT);
+  });
+
+  it("uses configured max tool iterations override", async () => {
+    mockAnthropicCreate.mockResolvedValue({
+      content: [
+        { type: "tool_use", id: "call_n", name: "memory_search", input: { query: "x" } },
+      ],
+      stop_reason: "tool_use",
+      usage: { input_tokens: 10, output_tokens: 5 },
+    });
+
+    const limitedInvoker = new AgentInvoker({
+      ...config,
+      maxToolIterations: 5,
+    });
+    limitedInvoker.setTools(mockTools as ToolRegistry);
+
+    const result = await limitedInvoker.ask("loop forever", "session-3b");
+    expect(mockAnthropicCreate.mock.calls.length).toBe(5);
+    expect(result.text).toBe(TOOL_LIMIT_CONTINUE_PROMPT);
+  });
+
+  it("emits progress message when tool limit is reached", async () => {
+    mockAnthropicCreate.mockResolvedValue({
+      content: [
+        { type: "tool_use", id: "call_n", name: "memory_search", input: { query: "x" } },
+      ],
+      stop_reason: "tool_use",
+      usage: { input_tokens: 10, output_tokens: 5 },
+    });
+
+    const limitedInvoker = new AgentInvoker({
+      ...config,
+      maxToolIterations: 5,
+    });
+    limitedInvoker.setTools(mockTools as ToolRegistry);
+
+    const progress: string[] = [];
+    const result = await limitedInvoker.ask("loop forever", "session-3f", (info) => progress.push(info));
+
+    expect(result.text).toBe(TOOL_LIMIT_CONTINUE_PROMPT);
+    expect(progress).toContain("limit: expensive=5/5 total=5 awaiting_user_confirmation");
+  });
+
+  it("passes arbitrary follow-up instructions back to the model after hitting the limit", async () => {
+    let callCount = 0;
+    mockAnthropicCreate.mockImplementation(() => {
+      callCount++;
+      if (callCount <= 5) {
+        return {
+          content: [
+            { type: "tool_use", id: `call_${callCount}`, name: "memory_search", input: { query: "x" } },
+          ],
+          stop_reason: "tool_use",
+          usage: { input_tokens: 10, output_tokens: 5 },
+        };
+      }
+      if (callCount === 6) {
+        return {
+          content: [
+            { type: "tool_use", id: "call_6", name: "memory_search", input: { query: "y" } },
+          ],
+          stop_reason: "tool_use",
+          usage: { input_tokens: 10, output_tokens: 5 },
+        };
+      }
+      return {
+        content: [{ type: "text", text: "已确认当前没有满足条件的数据。" }],
+        stop_reason: "end_turn",
+        usage: { input_tokens: 10, output_tokens: 5 },
+      };
+    });
+
+    const limitedInvoker = new AgentInvoker({
+      ...config,
+      maxToolIterations: 5,
+    });
+    limitedInvoker.setTools(mockTools as ToolRegistry);
+
+    const followUpInstruction = "继续查，并优先过滤客服号码";
+    const first = await limitedInvoker.ask("loop forever", "session-3g");
+    const second = await limitedInvoker.ask(followUpInstruction, "session-3g");
+    const continuationMessages = mockAnthropicCreate.mock.calls[5]?.[0]?.messages ?? [];
+
+    expect(first.text).toBe(TOOL_LIMIT_CONTINUE_PROMPT);
+    expect(second.text).toBe("已确认当前没有满足条件的数据。");
+    expect(mockAnthropicCreate).toHaveBeenCalledTimes(7);
+    expect(
+      continuationMessages.some((message: any) => message.role === "user" && message.content === followUpInstruction)
+    ).toBe(true);
   });
 
   it("retries on transient LLM errors", async () => {
@@ -283,7 +403,8 @@ describe("AgentInvoker (OpenAI-compatible)", () => {
     });
 
     const result = await invoker.ask("loop forever", "openai-session-3");
-    expect(mockOpenAICreate.mock.calls.length).toBe(MAX_TOOL_ITERATIONS + 1);
+    expect(mockOpenAICreate.mock.calls.length).toBe(MAX_TOOL_ITERATIONS);
+    expect(result.text).toBe(TOOL_LIMIT_CONTINUE_PROMPT);
   });
 });
 

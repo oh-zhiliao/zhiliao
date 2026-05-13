@@ -16,6 +16,7 @@ llm:
     base_url: "https://api.anthropic.com"   # required for openai_compatible
     model: "claude-sonnet-4-20250514"       # must support tool-use / function-calling
     api_key: "your-agent-api-key"
+    max_tool_iterations: 20                 # optional: expensive tool-call limit before forcing a final summary
   memo:
     provider: "openai_compatible"
     base_url: "https://api.deepseek.com/v1"

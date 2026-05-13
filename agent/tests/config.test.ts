@@ -29,6 +29,7 @@ llm:
   agent:
     provider: "anthropic"
     model: "claude-sonnet-4-20250514"
+    max_tool_iterations: 5
   memo:
     provider: "openai_compatible"
     base_url: "https://api.deepseek.com/v1"
@@ -54,6 +55,7 @@ admins:
     expect(config.project.name).toBe("test-project");
     expect(config.feishu.app_id).toBe("cli_test");
     expect(config.llm.agent.model).toBe("claude-sonnet-4-20250514");
+    expect(config.llm.agent.max_tool_iterations).toBe(5);
     expect(config.git?.poll_interval_minutes).toBe(5);
     expect(config.knowledge?.decay_after_days).toBe(30);
     expect(config.admins).toEqual(["ou_test123"]);
@@ -102,5 +104,35 @@ admins: []
 
   it("throws on missing config file", () => {
     expect(() => loadConfig("/nonexistent/config.yaml")).toThrow();
+  });
+
+  it("rejects non-positive max_tool_iterations", () => {
+    const configPath = join(TEST_DIR, "config-invalid.yaml");
+    writeFileSync(
+      configPath,
+      `
+project:
+  name: "test"
+feishu:
+  app_id: "cli_test"
+  app_secret: "secret123"
+  event_mode: "websocket"
+llm:
+  agent:
+    provider: "anthropic"
+    model: "claude-sonnet-4-20250514"
+    max_tool_iterations: 0
+  memo:
+    provider: "openai_compatible"
+    base_url: "https://api.deepseek.com/v1"
+    model: "deepseek-chat"
+  embedding:
+    provider: "openai_compatible"
+    base_url: "https://api.deepseek.com/v1"
+    model: "deepseek-embedding"
+`
+    );
+
+    expect(() => loadConfig(configPath)).toThrow("llm.agent.max_tool_iterations");
   });
 });

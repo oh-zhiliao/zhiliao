@@ -14,6 +14,7 @@ export interface AgentConfig {
   systemPrompt: string;
   memoUrl: string;
   timezone?: string;
+  maxToolIterations?: number;
 }
 
 export interface AgentResponse {
@@ -70,6 +71,8 @@ const TRUNCATE_RECENT_WINDOW = 10;
 const TOOL_RESULT_TRUNCATE_CHARS = 500;
 const TOKEN_SOFT_LIMIT = 80000;
 export const MAX_TOOL_ITERATIONS = 20;
+const TOOL_LIMIT_CONTINUE_PROMPT = "任务似乎比较复杂，目前达到了执行限制，是否要继续执行？如需继续，可以直接回复或补充新的要求。";
+const TOOL_LIMIT_PENDING_SENTINEL = "[系统] 已达到工具调用上限，任务暂停，等待用户确认继续执行。";
 
 // Hard cap on total iterations (cheap + expensive) to prevent infinite loops
 const MAX_TOTAL_ITERATIONS = 50;
@@ -78,6 +81,24 @@ const LLM_TIMEOUT_MS = 120_000; // 120 seconds per LLM call
 const LLM_MAX_RETRIES = 2; // 2 retries = 3 total attempts
 const LLM_RETRY_DELAYS = [1000, 3000]; // backoff delays in ms
 const DEBUG_LLM = !!process.env.DEBUG_LLM;
+
+function shouldProcessToolCalls(
+  sessionId: string,
+  stopReason: string,
+  toolCalls: LLMToolCallBlock[],
+  mode: "non-streaming" | "streaming",
+): boolean {
+  if (toolCalls.length === 0) {
+    return false;
+  }
+  if (stopReason === "tool_use") {
+    return true;
+  }
+
+  const prefix = mode === "streaming" ? "streaming llm" : "llm";
+  console.warn(`[${sessionId}] ${prefix} returned tool calls with stop=${stopReason}; treating response as tool_use`);
+  return true;
+}
 
 export const DEFAULT_SOUL_PROMPT = `# 知了 (Zhiliao)
 
@@ -105,6 +126,10 @@ export class AgentInvoker {
 
   private get isOpenAI(): boolean {
     return this.config.provider === "openai_compatible";
+  }
+
+  private get maxToolIterations(): number {
+    return this.config.maxToolIterations ?? MAX_TOOL_ITERATIONS;
   }
 
   constructor(config: AgentConfig) {
@@ -184,7 +209,8 @@ export class AgentInvoker {
     }
 
     entry.lastAccessedAt = Date.now();
-    this.pushUserMessage(entry, question);
+    const effectiveQuestion = this.prepareQuestionForSession(entry, question);
+    this.pushUserMessage(entry, effectiveQuestion);
 
     // Trim history
     this.trimHistory(entry);
@@ -253,7 +279,7 @@ export class AgentInvoker {
 
       console.log(`[${sessionId}] llm iter=${totalIterations} tokens=${response.inputTokens}+${response.outputTokens} tools=${toolCalls.map(c => c.name).join(",") || "none"} stop=${response.stopReason}`);
 
-      if (toolCalls.length === 0 || response.stopReason !== "tool_use") {
+      if (!shouldProcessToolCalls(sessionId, response.stopReason, toolCalls, "non-streaming")) {
         // No tool calls — done
         finalText = textParts.join("\n").trim();
         entry.history.push(response.rawAssistantContent);
@@ -283,16 +309,10 @@ export class AgentInvoker {
 
       this.pushToolResults(entry, toolResultPairs);
 
-      // If hit either limit, make one final call WITHOUT tools to force a summary
-      if (expensiveIterations >= MAX_TOOL_ITERATIONS || totalIterations >= MAX_TOTAL_ITERATIONS) {
-        const finalResponse = await this.callLLMWithRetry(entry.history, [], effectivePrompt);
-        entry.totalInputTokens += finalResponse.inputTokens;
-        entry.totalOutputTokens += finalResponse.outputTokens;
-        const finalParts = finalResponse.content
-          .filter((b): b is LLMTextBlock => b.type === "text")
-          .map((b) => b.text);
-        finalText = finalParts.join("\n") || "(无法生成回复，请重试)";
-        entry.history.push(finalResponse.rawAssistantContent);
+      if (expensiveIterations >= this.maxToolIterations || totalIterations >= MAX_TOTAL_ITERATIONS) {
+        onProgress?.(`limit: expensive=${expensiveIterations}/${this.maxToolIterations} total=${totalIterations} awaiting_user_confirmation`);
+        this.pushAssistantTextMessage(entry, TOOL_LIMIT_PENDING_SENTINEL);
+        finalText = TOOL_LIMIT_CONTINUE_PROMPT;
         break;
       }
     }
@@ -338,7 +358,8 @@ export class AgentInvoker {
     }
 
     entry.lastAccessedAt = Date.now();
-    this.pushUserMessage(entry, question);
+    const effectiveQuestion = this.prepareQuestionForSession(entry, question);
+    this.pushUserMessage(entry, effectiveQuestion);
 
     // Trim history
     this.trimHistory(entry);
@@ -411,7 +432,7 @@ export class AgentInvoker {
 
         console.log(`[${sessionId}] streaming iter=${totalIterations} tokens=${response.inputTokens}+${response.outputTokens} tools=${toolCalls.map(c => c.name).join(",") || "none"} stop=${response.stopReason}`);
 
-        if (toolCalls.length === 0 || response.stopReason !== "tool_use") {
+        if (!shouldProcessToolCalls(sessionId, response.stopReason, toolCalls, "streaming")) {
           // No tool calls — done (text deltas already sent via streaming callback)
           finalText = textParts.join("\n").trim();
           entry.history.push(response.rawAssistantContent);
@@ -443,26 +464,9 @@ export class AgentInvoker {
 
         this.pushToolResults(entry, toolResultPairs);
 
-        // If hit either limit, make one final call WITHOUT tools to force a summary
-        if (expensiveIterations >= MAX_TOOL_ITERATIONS || totalIterations >= MAX_TOTAL_ITERATIONS) {
-          // Check abort before final LLM call
-          if (signal?.aborted) {
-            const err = new Error("Aborted");
-            err.name = "AbortError";
-            throw err;
-          }
-
-          const finalResponse = await this.callLLMStreamingWithRetry(
-            entry.history, [], effectivePrompt,
-            callbacks.onTextDelta, signal,
-          );
-          entry.totalInputTokens += finalResponse.inputTokens;
-          entry.totalOutputTokens += finalResponse.outputTokens;
-          const finalParts = finalResponse.content
-            .filter((b): b is LLMTextBlock => b.type === "text")
-            .map((b) => b.text);
-          finalText = finalParts.join("\n") || "(无法生成回复，请重试)";
-          entry.history.push(finalResponse.rawAssistantContent);
+        if (expensiveIterations >= this.maxToolIterations || totalIterations >= MAX_TOTAL_ITERATIONS) {
+          this.pushAssistantTextMessage(entry, TOOL_LIMIT_PENDING_SENTINEL);
+          finalText = TOOL_LIMIT_CONTINUE_PROMPT;
           break;
         }
       }
@@ -943,6 +947,25 @@ export class AgentInvoker {
   /** Push a user text message in the correct provider format */
   private pushUserMessage(entry: SessionEntry, text: string): void {
     entry.history.push({ role: "user", content: text });
+  }
+
+  /** Push an assistant text message in the correct provider format */
+  private pushAssistantTextMessage(entry: SessionEntry, text: string): void {
+    entry.history.push({ role: "assistant", content: text });
+  }
+
+  private hasPendingContinuation(entry: SessionEntry): boolean {
+    const last = entry.history[entry.history.length - 1];
+    return last?.role === "assistant" && last?.content === TOOL_LIMIT_PENDING_SENTINEL;
+  }
+
+  private prepareQuestionForSession(entry: SessionEntry, question: string): string {
+    if (!this.hasPendingContinuation(entry)) {
+      return question;
+    }
+
+    entry.history.pop();
+    return question;
   }
 
   /** Push tool results in the correct provider format */

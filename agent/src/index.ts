@@ -68,6 +68,7 @@ async function main() {
     systemPrompt,
     memoUrl,
     timezone: config.project.timezone,
+    maxToolIterations: config.llm.agent.max_tool_iterations,
   });
 
   // Load tools from plugins
@@ -98,7 +99,7 @@ async function main() {
       provider: config.llm.memo.provider,
     });
   }
-  console.log(`Agent model: ${config.llm.agent.model} | Tools: ${toolRegistry.getToolDefinitions().length} | Plugins: ${plugins.length}`);
+  console.log(`Agent model: ${config.llm.agent.model} | Tool iteration limit: ${config.llm.agent.max_tool_iterations ?? 20} | Tools: ${toolRegistry.getToolDefinitions().length} | Plugins: ${plugins.length}`);
 
   // Initialize Feishu
   const feishuClient = new FeishuClient({
