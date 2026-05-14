@@ -474,6 +474,32 @@ export class FeishuAdapter {
     };
   }
 
+  private getRoleHelpText(): string {
+    return [
+      "角色管理命令:",
+      "/role help: 显示本帮助",
+      "/role assign <chat_id> <role>: 为指定会话绑定 role，优先级高于默认角色",
+      "/role revoke <chat_id>: 删除指定会话绑定，之后会回退到默认角色或报错",
+      "/role get <chat_id>: 查看指定会话当前绑定的 role",
+      "/role list: 列出所有 chat_id 绑定和 group/p2p 默认角色",
+      "/role default <group|p2p> <role>: 为未单独配置的 group/p2p 会话设置默认 role",
+      "/role default-revoke <group|p2p>: 删除 group/p2p 默认角色，之后未单独配置的会话会报错",
+      "",
+      "示例:",
+      "/role assign oc_xxx prod_readonly",
+      "/role default p2p default",
+    ].join("\n");
+  }
+
+  private getRoleDefaultUsageText(): string {
+    return [
+      "用法: /role default <group|p2p> <role>",
+      "作用: 为未单独配置 chat_id 的 group/p2p 会话设置兜底 role。",
+      "优先级: chat_id 显式绑定高于默认角色。",
+      "示例: /role default p2p default",
+    ].join("\n");
+  }
+
   private async handleRoleCommand(
     ctx: FeishuMessageContext,
     subcommand: string | undefined,
@@ -487,16 +513,7 @@ export class FeishuAdapter {
     const sub = subcommand ?? "help";
     switch (sub) {
       case "help":
-        await this.reply(ctx, [
-          "用法:",
-          "/role help",
-          "/role assign <chat_id> <role>",
-          "/role revoke <chat_id>",
-          "/role get <chat_id>",
-          "/role list",
-          "/role default <group|p2p> <role>",
-          "/role default-revoke <group|p2p>",
-        ].join("\n"));
+        await this.reply(ctx, this.getRoleHelpText());
         return;
       case "assign": {
         if (args.length !== 2) {
@@ -547,7 +564,7 @@ export class FeishuAdapter {
       }
       case "default": {
         if (args.length !== 2 || (args[0] !== "group" && args[0] !== "p2p")) {
-          await this.reply(ctx, "用法: /role default <group|p2p> <role>");
+          await this.reply(ctx, this.getRoleDefaultUsageText());
           return;
         }
         this.deps.db.setChatTypeDefaultRole(args[0], args[1], ctx.senderId);

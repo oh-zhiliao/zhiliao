@@ -141,6 +141,8 @@ describe("FeishuAdapter", () => {
 
     expect(sentMessages).toHaveLength(1);
     expect(sentMessages[0].content).toContain("/role assign <chat_id> <role>");
+    expect(sentMessages[0].content).toContain("为指定会话绑定 role");
+    expect(sentMessages[0].content).toContain("未单独配置的 group/p2p 会话设置默认 role");
   });
 
   it("rejects /role for non-admin users", async () => {
@@ -179,6 +181,15 @@ describe("FeishuAdapter", () => {
     expect(sentMessages.some((msg) => msg.content.includes("已设置默认 role: chat_type=group, role=default"))).toBe(true);
     expect(sentMessages.some((msg) => msg.content.includes("已删除默认 role: chat_type=group"))).toBe(true);
     expect(sentMessages.some((msg) => msg.content.includes("已删除 role: chat_id=oc_dm1"))).toBe(true);
+  });
+
+  it("returns explained usage for invalid /role default arguments", async () => {
+    await adapter.handleMessage(makeDmEvent("/role default", "ou_admin", { message_id: "om_role_default_invalid" }));
+
+    expect(sentMessages).toHaveLength(1);
+    expect(sentMessages[0].content).toContain("用法: /role default <group|p2p> <role>");
+    expect(sentMessages[0].content).toContain("为未单独配置 chat_id 的 group/p2p 会话设置兜底 role");
+    expect(sentMessages[0].content).toContain("示例: /role default p2p default");
   });
 
   it("keeps /new behind the role gate when no role is configured", async () => {
