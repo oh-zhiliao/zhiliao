@@ -192,6 +192,20 @@ describe("FeishuAdapter", () => {
     expect(sentMessages[0].content).toContain("示例: /role default p2p default");
   });
 
+  it("returns explained usage for other /role subcommands with invalid arguments", async () => {
+    await adapter.handleMessage(makeDmEvent("/role assign", "ou_admin", { message_id: "om_role_assign_invalid" }));
+    await adapter.handleMessage(makeDmEvent("/role revoke", "ou_admin", { message_id: "om_role_revoke_invalid" }));
+    await adapter.handleMessage(makeDmEvent("/role get", "ou_admin", { message_id: "om_role_get_invalid" }));
+    await adapter.handleMessage(makeDmEvent("/role list extra", "ou_admin", { message_id: "om_role_list_invalid" }));
+    await adapter.handleMessage(makeDmEvent("/role default-revoke", "ou_admin", { message_id: "om_role_default_revoke_invalid" }));
+
+    expect(sentMessages.some((msg) => msg.content.includes("用法: /role assign <chat_id> <role>") && msg.content.includes("为指定会话绑定 role"))).toBe(true);
+    expect(sentMessages.some((msg) => msg.content.includes("用法: /role revoke <chat_id>") && msg.content.includes("删除指定会话绑定"))).toBe(true);
+    expect(sentMessages.some((msg) => msg.content.includes("用法: /role get <chat_id>") && msg.content.includes("查看指定会话当前绑定的 role"))).toBe(true);
+    expect(sentMessages.some((msg) => msg.content.includes("用法: /role list") && msg.content.includes("列出所有 chat_id 绑定和默认角色"))).toBe(true);
+    expect(sentMessages.some((msg) => msg.content.includes("用法: /role default-revoke <group|p2p>") && msg.content.includes("删除 group/p2p 默认角色"))).toBe(true);
+  });
+
   it("keeps /new behind the role gate when no role is configured", async () => {
     mockDb.resolveFeishuRole.mockReturnValueOnce(null);
 

@@ -500,6 +500,46 @@ export class FeishuAdapter {
     ].join("\n");
   }
 
+  private getRoleAssignUsageText(): string {
+    return [
+      "用法: /role assign <chat_id> <role>",
+      "作用: 为指定会话绑定 role，优先级高于默认角色。",
+      "示例: /role assign oc_xxx prod_readonly",
+    ].join("\n");
+  }
+
+  private getRoleRevokeUsageText(): string {
+    return [
+      "用法: /role revoke <chat_id>",
+      "作用: 删除指定会话绑定，之后会回退到默认角色或报错。",
+      "示例: /role revoke oc_xxx",
+    ].join("\n");
+  }
+
+  private getRoleGetUsageText(): string {
+    return [
+      "用法: /role get <chat_id>",
+      "作用: 查看指定会话当前绑定的 role。",
+      "示例: /role get oc_xxx",
+    ].join("\n");
+  }
+
+  private getRoleListUsageText(): string {
+    return [
+      "用法: /role list",
+      "作用: 列出所有 chat_id 绑定和默认角色。",
+      "示例: /role list",
+    ].join("\n");
+  }
+
+  private getRoleDefaultRevokeUsageText(): string {
+    return [
+      "用法: /role default-revoke <group|p2p>",
+      "作用: 删除 group/p2p 默认角色，之后未单独配置的会话会报错。",
+      "示例: /role default-revoke p2p",
+    ].join("\n");
+  }
+
   private async handleRoleCommand(
     ctx: FeishuMessageContext,
     subcommand: string | undefined,
@@ -517,7 +557,7 @@ export class FeishuAdapter {
         return;
       case "assign": {
         if (args.length !== 2) {
-          await this.reply(ctx, "用法: /role assign <chat_id> <role>");
+          await this.reply(ctx, this.getRoleAssignUsageText());
           return;
         }
         this.deps.db.assignChatRole(args[0], args[1], ctx.senderId);
@@ -526,7 +566,7 @@ export class FeishuAdapter {
       }
       case "revoke": {
         if (args.length !== 1) {
-          await this.reply(ctx, "用法: /role revoke <chat_id>");
+          await this.reply(ctx, this.getRoleRevokeUsageText());
           return;
         }
         this.deps.db.revokeChatRole(args[0]);
@@ -535,7 +575,7 @@ export class FeishuAdapter {
       }
       case "get": {
         if (args.length !== 1) {
-          await this.reply(ctx, "用法: /role get <chat_id>");
+          await this.reply(ctx, this.getRoleGetUsageText());
           return;
         }
         const role = this.deps.db.getChatRole(args[0]);
@@ -546,6 +586,10 @@ export class FeishuAdapter {
         return;
       }
       case "list": {
+        if (args.length !== 0) {
+          await this.reply(ctx, this.getRoleListUsageText());
+          return;
+        }
         const rows = this.deps.db.listChatRoles();
         const defaults = ["group", "p2p"]
           .map((chatType) => {
@@ -573,7 +617,7 @@ export class FeishuAdapter {
       }
       case "default-revoke": {
         if (args.length !== 1 || (args[0] !== "group" && args[0] !== "p2p")) {
-          await this.reply(ctx, "用法: /role default-revoke <group|p2p>");
+          await this.reply(ctx, this.getRoleDefaultRevokeUsageText());
           return;
         }
         this.deps.db.revokeChatTypeDefaultRole(args[0]);
