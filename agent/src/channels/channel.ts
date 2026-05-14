@@ -1,9 +1,12 @@
+import type { RequestContext } from "../agent/request-context.js";
+
 export interface ChannelMessageContext {
   channelName: string;
   userId: string;
   sessionKey: string;
   messageId?: string;
   extra: Record<string, unknown>;
+  requestContext?: RequestContext;
 }
 
 export type StreamDelta =

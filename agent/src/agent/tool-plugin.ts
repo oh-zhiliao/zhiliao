@@ -1,3 +1,5 @@
+import type { RequestContext } from "./request-context.js";
+
 export interface ToolDefinition {
   name: string;
   description: string;
@@ -18,7 +20,7 @@ export interface ToolPlugin {
   getToolDefinitions(): ToolDefinition[];
 
   /** Execute a tool by its unprefixed name. Returns result string or error string. */
-  executeTool(name: string, input: Record<string, any>): Promise<string>;
+  executeTool(name: string, input: Record<string, any>, context?: RequestContext): Promise<string>;
 
   /** Tool names (unprefixed) that are cheap/local and don't count against expensive limit. */
   getCheapTools?(): string[];
@@ -65,6 +67,8 @@ export interface CommandCallContext {
   chatType: "p2p" | "group";
   chatId: string;
   logId: string;
+  channel?: "feishu" | "webchat";
+  role?: string;
 }
 
 /** Command handler returned by plugins. Subcommands keyed by name. */

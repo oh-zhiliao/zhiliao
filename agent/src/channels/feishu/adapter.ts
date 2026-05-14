@@ -2,11 +2,14 @@ import { randomUUID } from "crypto";
 import type { FeishuClient, FeishuEventData } from "./client.js";
 import type { AgentInvoker } from "../../agent/invoker.js";
 import type { ToolRegistry } from "../../agent/tool-registry.js";
+import type { ZhiliaoDB, ResolvedFeishuRole } from "../../db.js";
+import type { RequestContext } from "../../agent/request-context.js";
 import { parseCommand } from "../../commands/router.js";
 import { handleNew, handleContext, handleHelp } from "../../commands/session-commands.js";
 import { buildSessionKey, type FeishuMessageContext } from "./thread-mapper.js";
 import { buildCardMessage } from "./message-builder.js";
 import { filterSecrets } from "./secret-filter.js";
+import type { CommandCallContext } from "../../agent/tool-plugin.js";
 
 const DEDUP_TTL_MS = 5 * 60 * 1000; // 5 minutes
 const DEFAULT_MAX_MESSAGE_AGE_MS = 30 * 1000; // 30 seconds
@@ -111,6 +114,7 @@ export interface FeishuAdapterDeps {
   client: FeishuClient;
   agent: AgentInvoker;
   toolRegistry: ToolRegistry;
+  db: ZhiliaoDB;
   secretPatterns?: RegExp[];
   maxMessageAgeMs?: number;
   admins?: string[];
@@ -232,16 +236,25 @@ export class FeishuAdapter {
     const parsed = parseCommand(text);
 
     if (parsed.type === "command") {
-      // Builtin session commands have highest priority
+      if (parsed.command === "help") {
+        await this.handleSessionCommand(ctx, parsed.command);
+        return;
+      }
+      if (parsed.command === "role") {
+        await this.handleRoleCommand(ctx, parsed.subcommand, parsed.args);
+        return;
+      }
+
+      const resolvedRole = this.requireRole(ctx);
+      if (!resolvedRole) {
+        await this.reply(ctx, this.buildMissingRoleMessage(ctx));
+        return;
+      }
+
       if (await this.handleSessionCommand(ctx, parsed.command)) return;
 
       // Try plugin commands: /{plugin-name} {subcommand} {args}
-      const callCtx = {
-        userId: ctx.senderId,
-        chatType: ctx.chatType as "p2p" | "group",
-        chatId: ctx.chatId,
-        logId: ctx.logId,
-      };
+      const callCtx = this.buildCommandContext(ctx, resolvedRole.role);
       const result = await this.deps.toolRegistry.handleCommand(
         parsed.command,
         parsed.subcommand ?? "",
@@ -258,7 +271,12 @@ export class FeishuAdapter {
       console.log(`[${ctx.logId}] unknown command: /${parsed.command}`);
       await this.reply(ctx, `未知命令: /${parsed.command}`);
     } else {
-      await this.handleQuestion(ctx, parsed.text);
+      const resolvedRole = this.requireRole(ctx);
+      if (!resolvedRole) {
+        await this.reply(ctx, this.buildMissingRoleMessage(ctx));
+        return;
+      }
+      await this.handleQuestion(ctx, parsed.text, resolvedRole.role);
     }
   }
 
@@ -291,14 +309,24 @@ export class FeishuAdapter {
     const parsed = parseCommand(text);
 
     if (parsed.type === "command") {
+      if (parsed.command === "help") {
+        await this.handleSessionCommand(ctx, parsed.command);
+        return;
+      }
+      if (parsed.command === "role") {
+        await this.handleRoleCommand(ctx, parsed.subcommand, parsed.args);
+        return;
+      }
+
+      const resolvedRole = this.requireRole(ctx);
+      if (!resolvedRole) {
+        await this.reply(ctx, this.buildMissingRoleMessage(ctx));
+        return;
+      }
+
       if (await this.handleSessionCommand(ctx, parsed.command)) return;
 
-      const callCtx = {
-        userId: ctx.senderId,
-        chatType: ctx.chatType as "p2p" | "group",
-        chatId: ctx.chatId,
-        logId: ctx.logId,
-      };
+      const callCtx = this.buildCommandContext(ctx, resolvedRole.role);
       const result = await this.deps.toolRegistry.handleCommand(
         parsed.command,
         parsed.subcommand ?? "",
@@ -315,10 +343,16 @@ export class FeishuAdapter {
       return;
     }
 
-    await this.handleQuestion(ctx, parsed.text);
+    const resolvedRole = this.requireRole(ctx);
+    if (!resolvedRole) {
+      await this.reply(ctx, this.buildMissingRoleMessage(ctx));
+      return;
+    }
+
+    await this.handleQuestion(ctx, parsed.text, resolvedRole.role);
   }
 
-  private async handleQuestion(ctx: FeishuMessageContext, question: string): Promise<void> {
+  private async handleQuestion(ctx: FeishuMessageContext, question: string, resolvedRole: string): Promise<void> {
     const sessionKey = buildSessionKey(ctx);
 
     // Progress callback: send "thinking" on first tool call, debug info in debug mode
@@ -341,7 +375,7 @@ export class FeishuAdapter {
     };
 
     try {
-      const response = await this.deps.agent.ask(question, sessionKey, onProgress);
+      const response = await this.deps.agent.ask(question, sessionKey, onProgress, this.buildRequestContext(ctx, resolvedRole));
       const replyText = shouldAppendLogId(response.text)
         ? appendLogId(response.text, ctx.logId)
         : response.text;
@@ -394,6 +428,143 @@ export class FeishuAdapter {
       await this.reply(ctx, text);
     } catch {
       // Already logged in reply(), swallow to prevent unhandled rejection
+    }
+  }
+
+  private isAdmin(senderId: string): boolean {
+    return this.deps.admins?.includes(senderId) ?? false;
+  }
+
+  private requireRole(ctx: FeishuMessageContext): ResolvedFeishuRole | null {
+    const resolved = this.deps.db.resolveFeishuRole(ctx.chatId, ctx.chatType);
+    if (resolved) {
+      console.log(
+        `[${ctx.logId}] role matched: role=${resolved.role} source=${resolved.source} chatType=${ctx.chatType} chat=${ctx.chatId}`
+      );
+    } else {
+      console.log(
+        `[${ctx.logId}] role missing: chatType=${ctx.chatType} chat=${ctx.chatId}`
+      );
+    }
+    return resolved;
+  }
+
+  private buildMissingRoleMessage(ctx: FeishuMessageContext): string {
+    return `当前会话未配置权限角色。chat_type=${ctx.chatType}, chat_id=${ctx.chatId}。请管理员执行 /role assign <chat_id> <role>，或为该 chat_type 设置默认 role。`;
+  }
+
+  private buildCommandContext(ctx: FeishuMessageContext, role: string): CommandCallContext {
+    return {
+      ...this.buildRequestContext(ctx, role),
+      userId: ctx.senderId,
+      chatType: ctx.chatType,
+      chatId: ctx.chatId,
+      logId: ctx.logId,
+    };
+  }
+
+  private buildRequestContext(ctx: FeishuMessageContext, role: string): RequestContext {
+    return {
+      channel: "feishu",
+      chatType: ctx.chatType,
+      chatId: ctx.chatId,
+      userId: ctx.senderId,
+      role,
+      logId: ctx.logId,
+    };
+  }
+
+  private async handleRoleCommand(
+    ctx: FeishuMessageContext,
+    subcommand: string | undefined,
+    args: string[],
+  ): Promise<void> {
+    if (!this.isAdmin(ctx.senderId)) {
+      await this.reply(ctx, "只有管理员可以执行 /role 命令。");
+      return;
+    }
+
+    const sub = subcommand ?? "help";
+    switch (sub) {
+      case "help":
+        await this.reply(ctx, [
+          "用法:",
+          "/role help",
+          "/role assign <chat_id> <role>",
+          "/role revoke <chat_id>",
+          "/role get <chat_id>",
+          "/role list",
+          "/role default <group|p2p> <role>",
+          "/role default-revoke <group|p2p>",
+        ].join("\n"));
+        return;
+      case "assign": {
+        if (args.length !== 2) {
+          await this.reply(ctx, "用法: /role assign <chat_id> <role>");
+          return;
+        }
+        this.deps.db.assignChatRole(args[0], args[1], ctx.senderId);
+        await this.reply(ctx, `已设置 role: chat_id=${args[0]}, role=${args[1]}`);
+        return;
+      }
+      case "revoke": {
+        if (args.length !== 1) {
+          await this.reply(ctx, "用法: /role revoke <chat_id>");
+          return;
+        }
+        this.deps.db.revokeChatRole(args[0]);
+        await this.reply(ctx, `已删除 role: chat_id=${args[0]}`);
+        return;
+      }
+      case "get": {
+        if (args.length !== 1) {
+          await this.reply(ctx, "用法: /role get <chat_id>");
+          return;
+        }
+        const role = this.deps.db.getChatRole(args[0]);
+        await this.reply(ctx, role
+          ? `当前 role: chat_id=${args[0]}, role=${role}`
+          : `当前未配置 role: chat_id=${args[0]}`
+        );
+        return;
+      }
+      case "list": {
+        const rows = this.deps.db.listChatRoles();
+        const defaults = ["group", "p2p"]
+          .map((chatType) => {
+            const role = this.deps.db.getChatTypeDefaultRole(chatType as "group" | "p2p");
+            return role ? `- ${chatType}: ${role}` : null;
+          })
+          .filter(Boolean);
+        const lines = [
+          `当前已配置 ${rows.length} 个 chat role 绑定`,
+          ...rows.map((row) => `- ${row.chatId}: ${row.role}`),
+          defaults.length > 0 ? "默认角色:" : null,
+          ...defaults,
+        ].filter(Boolean);
+        await this.reply(ctx, lines.join("\n"));
+        return;
+      }
+      case "default": {
+        if (args.length !== 2 || (args[0] !== "group" && args[0] !== "p2p")) {
+          await this.reply(ctx, "用法: /role default <group|p2p> <role>");
+          return;
+        }
+        this.deps.db.setChatTypeDefaultRole(args[0], args[1], ctx.senderId);
+        await this.reply(ctx, `已设置默认 role: chat_type=${args[0]}, role=${args[1]}`);
+        return;
+      }
+      case "default-revoke": {
+        if (args.length !== 1 || (args[0] !== "group" && args[0] !== "p2p")) {
+          await this.reply(ctx, "用法: /role default-revoke <group|p2p>");
+          return;
+        }
+        this.deps.db.revokeChatTypeDefaultRole(args[0]);
+        await this.reply(ctx, `已删除默认 role: chat_type=${args[0]}`);
+        return;
+      }
+      default:
+        await this.reply(ctx, "用法: /role help");
     }
   }
 }

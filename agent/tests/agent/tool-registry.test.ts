@@ -56,8 +56,9 @@ describe("ToolRegistry", () => {
   it("routes prefixed tool to correct external plugin", async () => {
     const plugin = makePlugin("cls-query", ["search"]);
     registry.register(plugin);
-    const result = await registry.executeTool("cls-query.search", { query: "error" });
-    expect(plugin.executeTool).toHaveBeenCalledWith("search", { query: "error" });
+    const ctx = { channel: "feishu", chatType: "group" as const, chatId: "oc_group_1", userId: "u1", role: "prod_readonly", logId: "log1" };
+    const result = await registry.executeTool("cls-query.search", { query: "error" }, ctx);
+    expect(plugin.executeTool).toHaveBeenCalledWith("search", { query: "error" }, ctx);
     expect(result).toBe("cls-query:search result");
   });
 
@@ -165,7 +166,7 @@ describe("ToolRegistry command routing", () => {
     });
     registry.register(plugin);
 
-    const ctx: CommandCallContext = { userId: "u1", chatType: "p2p", chatId: "c1", logId: "log1" };
+    const ctx: CommandCallContext = { userId: "u1", chatType: "p2p", chatId: "c1", logId: "log1", channel: "feishu", role: "prod_readonly" };
     const result = await registry.handleCommand("git-repos", "list", [], ctx);
     expect(result).toBe("repo list result");
     expect(handler).toHaveBeenCalledWith([], ctx);

@@ -1,6 +1,7 @@
 import type { Channel, ChannelMessageContext } from "./channel.js";
 import type { AgentInvoker } from "../agent/invoker.js";
 import type { ToolRegistry } from "../agent/tool-registry.js";
+import type { RequestContext } from "../agent/request-context.js";
 import { parseCommand } from "../commands/router.js";
 import { handleNew, handleContext, handleHelp } from "../commands/session-commands.js";
 import { filterSecrets } from "./feishu/secret-filter.js";
@@ -11,6 +12,15 @@ export class ChannelRouter {
     private toolRegistry: ToolRegistry,
     private secretPatterns: RegExp[],
   ) {}
+
+  private buildRequestContext(channel: Channel, context: ChannelMessageContext): RequestContext {
+    return context.requestContext ?? {
+      channel: channel.name === "webchat" ? "webchat" : undefined,
+      userId: context.userId,
+      role: undefined,
+      logId: context.messageId ?? "",
+    };
+  }
 
   async handleMessage(
     channel: Channel,
@@ -59,6 +69,8 @@ export class ChannelRouter {
       chatType: "p2p" as const,
       chatId: context.channelName,
       logId: context.messageId ?? "",
+      channel: "webchat" as const,
+      role: context.requestContext?.role,
     };
     const result = await this.toolRegistry.handleCommand(command, subcommand ?? "", args, callCtx);
     if (result !== null) {
@@ -81,7 +93,7 @@ export class ChannelRouter {
     };
 
     try {
-      const response = await this.agent.ask(question, sessionKey, onProgress);
+      const response = await this.agent.ask(question, sessionKey, onProgress, this.buildRequestContext(channel, context));
       const secretFiltered = filterSecrets(response.text, this.secretPatterns);
       const filtered = this.toolRegistry.filterOutput(secretFiltered);
       await channel.sendReply(context, filtered);

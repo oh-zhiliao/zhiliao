@@ -115,6 +115,7 @@ async function main() {
     client: feishuClient,
     agent,
     toolRegistry,
+    db,
     secretPatterns: pluginSecretPatterns,
     maxMessageAgeMs,
     admins: config.admins,

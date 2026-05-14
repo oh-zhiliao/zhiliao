@@ -139,6 +139,47 @@ describe("AgentInvoker.askStreaming", () => {
     expect(events).toEqual(["start:test.search", "end:test.search", "complete:Found it"]);
   });
 
+  it("passes request context to streaming tool execution", async () => {
+    const mockTools = {
+      getToolDefinitions: () => [{ name: "test.search", description: "search", input_schema: { type: "object", properties: {} } }],
+      executeTool: vi.fn().mockResolvedValue("search result"),
+      isCheapTool: () => false,
+      summarizeToolInput: () => "query",
+      getSystemPromptAddendum: () => "",
+      hasTool: () => false,
+      filterOutput: (t: string) => t,
+    };
+    invoker.setTools(mockTools as any);
+
+    let callCount = 0;
+    mockAnthropicCreate.mockImplementation(async () => {
+      callCount++;
+      if (callCount === 1) {
+        return createAnthropicStream(
+          toolUseResponseEvents([{ id: "t1", name: "test.search", input: { query: "test" } }]),
+        );
+      }
+      return createAnthropicStream(textResponseEvents("Found it"));
+    });
+
+    const requestContext = {
+      channel: "feishu" as const,
+      chatType: "group" as const,
+      chatId: "oc_group_1",
+      userId: "ou_1",
+      role: "prod_readonly",
+      logId: "log1",
+    };
+
+    await invoker.askStreaming("search for test", "test-session-ctx", {}, undefined, requestContext);
+
+    expect(mockTools.executeTool).toHaveBeenCalledWith(
+      "test.search",
+      { query: "test" },
+      requestContext,
+    );
+  });
+
   it("continues tool loop when streaming response has tool_use blocks but stop_reason is end_turn", async () => {
     const events: string[] = [];
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});

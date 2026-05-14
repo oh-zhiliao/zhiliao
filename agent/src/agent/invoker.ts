@@ -3,6 +3,7 @@ import OpenAI from "openai";
 import { readFileSync } from "fs";
 import { join } from "path";
 import type { ToolRegistry } from "./tool-registry.js";
+import type { RequestContext } from "./request-context.js";
 import type { ZhiliaoDB } from "../db.js";
 import { compressHistory, type CompressorConfig } from "./session-compressor.js";
 
@@ -179,8 +180,8 @@ export class AgentInvoker {
     }
   }
 
-  async ask(question: string, sessionId: string, onProgress?: ProgressCallback): Promise<AgentResponse> {
-    return this.withSessionLock(sessionId, () => this.doAsk(question, sessionId, onProgress));
+  async ask(question: string, sessionId: string, onProgress?: ProgressCallback, requestContext?: RequestContext): Promise<AgentResponse> {
+    return this.withSessionLock(sessionId, () => this.doAsk(question, sessionId, onProgress, requestContext));
   }
 
   async askStreaming(
@@ -188,13 +189,14 @@ export class AgentInvoker {
     sessionId: string,
     callbacks: StreamingCallbacks,
     signal?: AbortSignal,
+    requestContext?: RequestContext,
   ): Promise<string> {
     return this.withSessionLock(sessionId, () =>
-      this.doAskStreaming(question, sessionId, callbacks, signal)
+      this.doAskStreaming(question, sessionId, callbacks, signal, requestContext)
     );
   }
 
-  private async doAsk(question: string, sessionId: string, onProgress?: ProgressCallback): Promise<AgentResponse> {
+  private async doAsk(question: string, sessionId: string, onProgress?: ProgressCallback, requestContext?: RequestContext): Promise<AgentResponse> {
     let sessionExpired = false;
 
     const entry = this.loadOrCreateSession(sessionId);
@@ -234,7 +236,9 @@ export class AgentInvoker {
       try {
         // Session start: inject project overview
         if (entry.history.length === 1) {
-          const memResult = await this.tools.executeTool("memo-tools.get_memory", {});
+          const memResult = requestContext === undefined
+            ? await this.tools.executeTool("memo-tools.get_memory", {})
+            : await this.tools.executeTool("memo-tools.get_memory", {}, requestContext);
           if (memResult && !memResult.startsWith("No project memory")) {
             memoryContext += `\n\n## Project Memory\n${memResult}`;
             onProgress?.(`[auto] get_memory: ${memResult.slice(0, 200)}...`);
@@ -244,7 +248,9 @@ export class AgentInvoker {
         }
         // Every message: search memory for relevant context
         if (this.tools.hasTool("memo-tools.memory_search")) {
-          const searchResult = await this.tools.executeTool("memo-tools.memory_search", { query: question });
+          const searchResult = requestContext === undefined
+            ? await this.tools.executeTool("memo-tools.memory_search", { query: question })
+            : await this.tools.executeTool("memo-tools.memory_search", { query: question }, requestContext);
           if (searchResult && !searchResult.startsWith("No relevant") && !searchResult.startsWith("Memory search")) {
             memoryContext += `\n\n## Relevant Memory (auto-retrieved)\n${searchResult}`;
             onProgress?.(`[auto] memory_search("${question.slice(0, 50)}"): ${searchResult.slice(0, 200)}...`);
@@ -301,7 +307,9 @@ export class AgentInvoker {
         }
 
         const result = this.tools
-          ? await this.tools.executeTool(call.name, call.input)
+          ? requestContext === undefined
+            ? await this.tools.executeTool(call.name, call.input)
+            : await this.tools.executeTool(call.name, call.input, requestContext)
           : `Tool not available: ${call.name}`;
         toolResultPairs.push({ id: call.id, name: call.name, input: call.input, result });
         onProgress?.(`result: ${call.name} → ${result.slice(0, 300)}${result.length > 300 ? "..." : ""}`);
@@ -336,6 +344,7 @@ export class AgentInvoker {
     sessionId: string,
     callbacks: StreamingCallbacks,
     signal?: AbortSignal,
+    requestContext?: RequestContext,
   ): Promise<string> {
     // Check abort before starting
     if (signal?.aborted) {
@@ -382,13 +391,17 @@ export class AgentInvoker {
     if (this.tools?.hasTool("memo-tools.get_memory")) {
       try {
         if (entry.history.length === 1) {
-          const memResult = await this.tools.executeTool("memo-tools.get_memory", {});
+          const memResult = requestContext === undefined
+            ? await this.tools.executeTool("memo-tools.get_memory", {})
+            : await this.tools.executeTool("memo-tools.get_memory", {}, requestContext);
           if (memResult && !memResult.startsWith("No project memory")) {
             memoryContext += `\n\n## Project Memory\n${memResult}`;
           }
         }
         if (this.tools.hasTool("memo-tools.memory_search")) {
-          const searchResult = await this.tools.executeTool("memo-tools.memory_search", { query: question });
+          const searchResult = requestContext === undefined
+            ? await this.tools.executeTool("memo-tools.memory_search", { query: question })
+            : await this.tools.executeTool("memo-tools.memory_search", { query: question }, requestContext);
           if (searchResult && !searchResult.startsWith("No relevant") && !searchResult.startsWith("Memory search")) {
             memoryContext += `\n\n## Relevant Memory (auto-retrieved)\n${searchResult}`;
           }
@@ -454,7 +467,9 @@ export class AgentInvoker {
           callbacks.onToolStart?.(call.name, inputSummary);
 
           const result = this.tools
-            ? await this.tools.executeTool(call.name, call.input)
+            ? requestContext === undefined
+              ? await this.tools.executeTool(call.name, call.input)
+              : await this.tools.executeTool(call.name, call.input, requestContext)
             : `Tool not available: ${call.name}`;
           toolResultPairs.push({ id: call.id, name: call.name, input: call.input, result });
 

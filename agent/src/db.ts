@@ -1,6 +1,17 @@
 import Database from "better-sqlite3";
 
+export interface ListedChatRole {
+  chatId: string;
+  role: string;
+}
+
+export interface ResolvedFeishuRole {
+  role: string;
+  source: "chat" | "chat_type_default";
+}
+
 export class ZhiliaoDB {
+  private static readonly ROLE_RE = /^[A-Za-z0-9_-]+$/;
   private db: Database.Database;
 
   constructor(dbPath: string) {
@@ -18,6 +29,7 @@ export class ZhiliaoDB {
       .prepare("SELECT value FROM _meta WHERE key = 'schema_version'")
       .get() as { value: string } | undefined;
     const currentVersion = versionRow ? parseInt(versionRow.value, 10) : 0;
+    const wasUpgrade = currentVersion > 0;
 
     const migrations: Array<() => void> = [
       // v1: initial schema
@@ -61,6 +73,40 @@ export class ZhiliaoDB {
             last_accessed_at INTEGER NOT NULL
           );
         `);
+      },
+      // v3: role bindings and fallback defaults
+      () => {
+        this.db.exec(`
+          CREATE TABLE IF NOT EXISTS role_bindings (
+            subject_type TEXT NOT NULL,
+            subject_id TEXT NOT NULL,
+            role TEXT NOT NULL,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL,
+            created_by TEXT NOT NULL,
+            updated_by TEXT NOT NULL,
+            PRIMARY KEY (subject_type, subject_id)
+          );
+
+          CREATE TABLE IF NOT EXISTS role_defaults (
+            chat_type TEXT PRIMARY KEY,
+            role TEXT NOT NULL,
+            updated_at INTEGER NOT NULL,
+            updated_by TEXT NOT NULL
+          );
+        `);
+
+        if (wasUpgrade) {
+          const now = Date.now();
+          this.db.prepare(
+            `INSERT OR IGNORE INTO role_defaults (chat_type, role, updated_at, updated_by)
+             VALUES (?, 'default', ?, 'migration')`
+          ).run("group", now);
+          this.db.prepare(
+            `INSERT OR IGNORE INTO role_defaults (chat_type, role, updated_at, updated_by)
+             VALUES (?, 'default', ?, 'migration')`
+          ).run("p2p", now);
+        }
       },
     ];
 
@@ -108,5 +154,83 @@ export class ZhiliaoDB {
     const cutoff = Date.now() - ttlMs;
     const result = this.db.prepare("DELETE FROM sessions WHERE last_accessed_at < ?").run(cutoff);
     return result.changes;
+  }
+
+  // --- Roles ---
+
+  private validateRole(role: string): void {
+    if (!ZhiliaoDB.ROLE_RE.test(role)) {
+      throw new Error(`Invalid role: ${role}`);
+    }
+  }
+
+  assignChatRole(chatId: string, role: string, actor: string): void {
+    this.validateRole(role);
+    const now = Date.now();
+    this.db.prepare(
+      `INSERT INTO role_bindings (subject_type, subject_id, role, created_at, updated_at, created_by, updated_by)
+       VALUES ('chat', ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(subject_type, subject_id) DO UPDATE SET
+         role = excluded.role,
+         updated_at = excluded.updated_at,
+         updated_by = excluded.updated_by`
+    ).run(chatId, role, now, now, actor, actor);
+  }
+
+  getChatRole(chatId: string): string | null {
+    const row = this.db
+      .prepare("SELECT role FROM role_bindings WHERE subject_type = 'chat' AND subject_id = ?")
+      .get(chatId) as { role: string } | undefined;
+    return row?.role ?? null;
+  }
+
+  listChatRoles(): ListedChatRole[] {
+    return this.db
+      .prepare("SELECT subject_id as chatId, role FROM role_bindings WHERE subject_type = 'chat' ORDER BY subject_id")
+      .all() as ListedChatRole[];
+  }
+
+  revokeChatRole(chatId: string): void {
+    this.db
+      .prepare("DELETE FROM role_bindings WHERE subject_type = 'chat' AND subject_id = ?")
+      .run(chatId);
+  }
+
+  setChatTypeDefaultRole(chatType: "group" | "p2p", role: string, actor: string): void {
+    this.validateRole(role);
+    const now = Date.now();
+    this.db.prepare(
+      `INSERT INTO role_defaults (chat_type, role, updated_at, updated_by)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT(chat_type) DO UPDATE SET
+         role = excluded.role,
+         updated_at = excluded.updated_at,
+         updated_by = excluded.updated_by`
+    ).run(chatType, role, now, actor);
+  }
+
+  getChatTypeDefaultRole(chatType: "group" | "p2p"): string | null {
+    const row = this.db
+      .prepare("SELECT role FROM role_defaults WHERE chat_type = ?")
+      .get(chatType) as { role: string } | undefined;
+    return row?.role ?? null;
+  }
+
+  revokeChatTypeDefaultRole(chatType: "group" | "p2p"): void {
+    this.db.prepare("DELETE FROM role_defaults WHERE chat_type = ?").run(chatType);
+  }
+
+  resolveFeishuRole(chatId: string, chatType: "group" | "p2p"): ResolvedFeishuRole | null {
+    const chatRole = this.getChatRole(chatId);
+    if (chatRole) {
+      return { role: chatRole, source: "chat" };
+    }
+
+    const defaultRole = this.getChatTypeDefaultRole(chatType);
+    if (defaultRole) {
+      return { role: defaultRole, source: "chat_type_default" };
+    }
+
+    return null;
   }
 }
