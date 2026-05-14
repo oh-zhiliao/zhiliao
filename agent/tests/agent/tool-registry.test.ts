@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { ToolRegistry } from "../../src/agent/tool-registry.js";
+import type { RequestContext } from "../../src/agent/request-context.js";
 import type { ToolPlugin, PluginCommandHandler, PluginContext, CommandCallContext } from "../../src/agent/tool-plugin.js";
 
 function makePlugin(name: string, tools: string[], cheapTools: string[] = []): ToolPlugin {
@@ -56,7 +57,7 @@ describe("ToolRegistry", () => {
   it("routes prefixed tool to correct external plugin", async () => {
     const plugin = makePlugin("cls-query", ["search"]);
     registry.register(plugin);
-    const ctx = { channel: "feishu", chatType: "group" as const, chatId: "oc_group_1", userId: "u1", role: "prod_readonly", logId: "log1" };
+    const ctx: RequestContext = { channel: "feishu", chatType: "group", chatId: "oc_group_1", userId: "u1", role: "prod_readonly", logId: "log1" };
     const result = await registry.executeTool("cls-query.search", { query: "error" }, ctx);
     expect(plugin.executeTool).toHaveBeenCalledWith("search", { query: "error" }, ctx);
     expect(result).toBe("cls-query:search result");
