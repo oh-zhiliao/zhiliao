@@ -7,6 +7,7 @@ A multi-channel intelligent Q&A assistant with a plugin architecture. Supports F
 ## Features
 
 - **Multi-channel**: Feishu (WebSocket) and browser-based WebChat with real-time streaming
+- **Session-level permission model**: Feishu messages resolve role by `chat_id` / `chat_type`, can fail closed when unconfigured, and support live admin management via `/role`
 - **Plugin architecture**: Tools, commands, and background services via self-contained plugins
 - **Knowledge persistence**: Memo service with hybrid BM25 + vector search (FTS5 + embeddings)
 - **Multi-LLM support**: Anthropic Claude or OpenAI-compatible APIs (Doubao, GLM, DeepSeek)
@@ -95,7 +96,9 @@ admins:
   - "ou_xxxxxxx"
 ```
 
-See [docs/deployment.md](docs/deployment.md) for the full reference.
+`admins` is a list of Feishu admin `open_id` values used to authorize `/role` management commands.
+
+See [docs/module-config-db.md](docs/module-config-db.md) and [docs/deployment.md](docs/deployment.md) for the full reference.
 
 ## Plugin Ecosystem
 
@@ -112,6 +115,12 @@ Plugins are auto-discovered from the `plugins/` directory at startup. Each is a 
 ### Feishu
 
 WebSocket event subscription. Supports private chat, group chat with @mention, and per-thread sessions in topic groups.
+
+Role-based permission is enforced at the Feishu entrypoint. Each request resolves role in this order:
+
+1. explicit `chat_id` binding
+2. `group` / `p2p` default role
+3. reject the request if still unconfigured
 
 ### WebChat
 
@@ -131,6 +140,9 @@ webchat:
 | `/new` | Reset current session |
 | `/context` | Show session info (messages, tokens, duration) |
 | `/help` | Show help |
+| `/role help` | Show role management help |
+| `/role assign <chat_id> <role>` | Bind a role to one chat |
+| `/role default <group|p2p> <role>` | Set fallback role for unbound chats of that type |
 | `/git-repos list` | List tracked repositories |
 | `/git-repos status` | Show tracker/scanner status |
 
@@ -169,6 +181,8 @@ See [docs/testing.md](docs/testing.md) for test structure and [docs/mistakes.md]
 | [docs/architecture.md](docs/architecture.md) | System architecture, data flow, design decisions |
 | [docs/module-agent.md](docs/module-agent.md) | Agent invoker, agentic loop, plugin system |
 | [docs/module-feishu.md](docs/module-feishu.md) | Feishu channel: client, adapter, routing, message format |
+| [docs/module-feishu.md#permission-model](docs/module-feishu.md#权限模型) | Feishu permission model and `/role` commands |
+| [docs/module-config-db.md](docs/module-config-db.md) | Config, SQLite schema, role bindings/defaults |
 | [docs/module-memo.md](docs/module-memo.md) | Memo knowledge service: indexing, search, decay |
 | [docs/plugin-development.md](docs/plugin-development.md) | Plugin API reference and development guide |
 | [docs/deployment.md](docs/deployment.md) | Deployment manual (local, Docker, production) |
