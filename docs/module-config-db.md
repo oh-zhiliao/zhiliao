@@ -35,11 +35,18 @@ git:                                   # optional, used by git-repos plugin
   poll_interval_minutes: 5
   deep_scan_cron: "0 2 * * *"
   ssh_key_path: "./data/deploy_key"
-admins:                                # optional, used by git-repos plugin
+admins:                                # optional, Feishu admin open_id allowlist
   - "ou_xxxxxxx"
 ```
 
-**验证**: 必填字段 (`project.name`, `feishu.app_id`, `feishu.app_secret`, `llm.agent.model`) 缺失时 fail-fast 抛异常。`git`、`knowledge`、`admins` 为可选（已迁移到插件配置）。
+`admins` 为可选字段，表示飞书管理员的 `open_id` 白名单，用于 `/role` 管理命令权限校验。例如：
+
+```yaml
+admins:
+  - "ou_e821f98839568fee66f98eed73c1770f"
+```
+
+**验证**: 必填字段 (`project.name`, `feishu.app_id`, `feishu.app_secret`, `llm.agent.model`) 缺失时 fail-fast 抛异常。`git` 和 `admins` 为可选。
 
 ## db.ts
 
@@ -52,6 +59,53 @@ SQLite 数据层。核心应用使用 DB 进行 session 持久化。
 **特性**:
 - WAL 模式，支持并发读
 - Upsert 语义，幂等操作
+
+### 角色权限相关表
+
+飞书 role-based permission 使用以下两张表：
+
+#### `role_bindings`
+
+按 `chat_id` 绑定显式角色。
+
+| 列 | 说明 |
+|---|---|
+| `subject_type` | 当前固定为 `chat` |
+| `subject_id` | 飞书 `chat_id` |
+| `role` | 绑定的角色名 |
+| `created_at` / `updated_at` | 毫秒时间戳 |
+| `created_by` / `updated_by` | 操作人的飞书 `open_id` |
+
+主键为 `(subject_type, subject_id)`。
+
+#### `role_defaults`
+
+按 `chat_type` 设置默认角色。
+
+| 列 | 说明 |
+|---|---|
+| `chat_type` | `group` 或 `p2p` |
+| `role` | 默认角色名 |
+| `updated_at` | 毫秒时间戳 |
+| `updated_by` | 操作人的飞书 `open_id` |
+
+### 运行时解析顺序
+
+每次收到飞书消息时，系统都会实时读表解析最新 role：
+
+1. `role_bindings(chat_id)`
+2. `role_defaults(chat_type)`
+3. 仍未命中则拒绝请求
+
+不会把 role 常驻缓存到内存，因此管理员执行 `/role assign` / `/role default` 后，后续消息会立即生效。
+
+### 角色值约束
+
+`role` 只允许字母、数字、下划线和短横线，即正则：
+
+```text
+^[A-Za-z0-9_-]+$
+```
 
 ## index.ts — 入口
 

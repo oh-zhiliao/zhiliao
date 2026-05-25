@@ -6,7 +6,7 @@ import type { ToolRegistry } from "../../src/agent/tool-registry.js";
 
 function createMockChannel(overrides: Partial<Channel> = {}): Channel {
   return {
-    name: "test",
+    name: "webchat",
     getSessionKey: (ctx) => `test:${ctx.userId}`,
     sendReply: vi.fn().mockResolvedValue(undefined),
     supportsStreaming: () => false,
@@ -40,7 +40,12 @@ describe("ChannelRouter", () => {
     const channel = createMockChannel();
     const ctx = createMockContext();
     await router.handleMessage(channel, ctx, "what is this?");
-    expect(mockAgent.ask).toHaveBeenCalledWith("what is this?", "test:u1", expect.any(Function));
+    expect(mockAgent.ask).toHaveBeenCalledWith(
+      "what is this?",
+      "test:u1",
+      expect.any(Function),
+      expect.objectContaining({ channel: "webchat", userId: "u1", role: undefined }),
+    );
     expect(channel.sendReply).toHaveBeenCalledWith(ctx, "agent response");
   });
 
@@ -66,7 +71,18 @@ describe("ChannelRouter", () => {
     const channel = createMockChannel();
     const ctx = createMockContext();
     await router.handleMessage(channel, ctx, "/git-repos list");
-    expect(mockRegistry.handleCommand).toHaveBeenCalledWith("git-repos", "list", [], expect.any(Object));
+    expect(mockRegistry.handleCommand).toHaveBeenCalledWith(
+      "git-repos",
+      "list",
+      [],
+      expect.objectContaining({
+        userId: "u1",
+        chatType: "p2p",
+        chatId: "test",
+        channel: "webchat",
+        role: undefined,
+      }),
+    );
     expect(channel.sendReply).toHaveBeenCalledWith(ctx, "plugin response");
   });
 

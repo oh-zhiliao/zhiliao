@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ToolPlugin, ToolDefinition } from "../agent/tool-plugin.js";
+import type { RequestContext } from "../agent/request-context.js";
 
 const REQUEST_TIMEOUT = 30_000;
 
@@ -84,7 +85,7 @@ export class MemoToolsPlugin implements ToolPlugin {
     return "";
   }
 
-  async executeTool(name: string, input: Record<string, any>): Promise<string> {
+  async executeTool(name: string, input: Record<string, any>, _context?: RequestContext): Promise<string> {
     try {
       switch (name) {
         case "memory_search": return await this.memorySearch(input.query);

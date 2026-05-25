@@ -1,4 +1,5 @@
 import type { ToolPlugin, ToolDefinition, PluginContext, CommandCallContext } from "./tool-plugin.js";
+import type { RequestContext } from "./request-context.js";
 
 const BUILTIN_PLUGIN_NAME = "builtin";
 
@@ -36,19 +37,23 @@ export class ToolRegistry {
     return allDefs;
   }
 
-  async executeTool(fullName: string, input: Record<string, any>): Promise<string> {
+  async executeTool(fullName: string, input: Record<string, any>, context?: RequestContext): Promise<string> {
     const dotIdx = fullName.indexOf(".");
     if (dotIdx === -1) {
       if (!this.knownTools.has(fullName)) return `Unknown tool: ${fullName}`;
       const builtin = this.plugins.get(BUILTIN_PLUGIN_NAME);
       if (!builtin) return `Unknown tool: ${fullName}`;
-      return builtin.executeTool(fullName, input);
+      return context === undefined
+        ? builtin.executeTool(fullName, input)
+        : builtin.executeTool(fullName, input, context);
     }
     const pluginName = fullName.slice(0, dotIdx);
     const toolName = fullName.slice(dotIdx + 1);
     const plugin = this.plugins.get(pluginName);
     if (!plugin) return `Unknown plugin: ${pluginName}`;
-    return plugin.executeTool(toolName, input);
+    return context === undefined
+      ? plugin.executeTool(toolName, input)
+      : plugin.executeTool(toolName, input, context);
   }
 
   hasTool(fullName: string): boolean {

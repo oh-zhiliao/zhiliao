@@ -8,6 +8,37 @@ describe("FeishuAdapter", () => {
   let mockClient: any;
   let mockAgent: any;
   let mockToolRegistry: any;
+  let mockDb: any;
+
+  function makeDmEvent(text: string, openId = "ou_user1", overrides: Record<string, unknown> = {}) {
+    return {
+      sender: { sender_id: { open_id: openId }, sender_type: "user" },
+      message: {
+        message_id: "om_dm",
+        chat_id: "oc_dm1",
+        chat_type: "p2p",
+        message_type: "text",
+        content: JSON.stringify({ text }),
+        ...overrides,
+      },
+    } as any;
+  }
+
+  function makeGroupEvent(text: string, openId = "ou_user1", overrides: Record<string, unknown> = {}) {
+    return {
+      sender: { sender_id: { open_id: openId }, sender_type: "user" },
+      message: {
+        message_id: "om_group",
+        chat_id: "oc_group1",
+        chat_type: "group",
+        message_type: "text",
+        content: JSON.stringify({ text }),
+        thread_id: "omt_thread1",
+        mentions: [{ key: "@_user_1", id: { open_id: "ou_bot_open_id" }, name: "GitMemo" }],
+        ...overrides,
+      },
+    } as any;
+  }
 
   beforeEach(() => {
     sentMessages.length = 0;
@@ -41,10 +72,23 @@ describe("FeishuAdapter", () => {
       filterOutput: vi.fn((text: string) => text),
     };
 
+    mockDb = {
+      resolveFeishuRole: vi.fn(() => ({ role: "default", source: "chat_type_default" })),
+      assignChatRole: vi.fn(),
+      revokeChatRole: vi.fn(),
+      getChatRole: vi.fn(() => null),
+      listChatRoles: vi.fn(() => []),
+      setChatTypeDefaultRole: vi.fn(),
+      revokeChatTypeDefaultRole: vi.fn(),
+      getChatTypeDefaultRole: vi.fn(() => null),
+    };
+
     const deps: FeishuAdapterDeps = {
       client: mockClient as any,
       agent: mockAgent as any,
       toolRegistry: mockToolRegistry as any,
+      db: mockDb as any,
+      admins: ["ou_admin"],
     };
 
     adapter = new FeishuAdapter(deps);
@@ -52,17 +96,9 @@ describe("FeishuAdapter", () => {
 
   it("routes DM plugin command through toolRegistry", async () => {
     mockToolRegistry.handleCommand.mockResolvedValueOnce("仓库列表: 空");
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
-    await adapter.handleMessage({
-      sender: { sender_id: { open_id: "ou_admin" }, sender_type: "user" },
-      message: {
-        message_id: "om_1",
-        chat_id: "oc_dm1",
-        chat_type: "p2p",
-        message_type: "text",
-        content: JSON.stringify({ text: "/repo list" }),
-      },
-    } as any);
+    await adapter.handleMessage(makeDmEvent("/repo list", "ou_admin", { message_id: "om_1" }));
 
     expect(sentMessages.length).toBe(1);
     expect(sentMessages[0].content).toContain("仓库列表: 空");
@@ -70,8 +106,114 @@ describe("FeishuAdapter", () => {
       "repo",
       "list",
       [],
-      expect.objectContaining({ userId: "ou_admin", chatType: "p2p" })
+      expect.objectContaining({ userId: "ou_admin", chatType: "p2p", channel: "feishu", role: "default" })
     );
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringContaining("role matched: role=default source=chat_type_default")
+    );
+    logSpy.mockRestore();
+  });
+
+  it("rejects non-role commands when no role is configured", async () => {
+    mockDb.resolveFeishuRole.mockReturnValueOnce(null);
+
+    await adapter.handleMessage(makeDmEvent("hello"));
+
+    expect(sentMessages).toHaveLength(1);
+    expect(sentMessages[0].content).toContain("chat_id=oc_dm1");
+    expect(mockAgent.ask).not.toHaveBeenCalled();
+  });
+
+  it("allows /help without an existing chat role", async () => {
+    mockDb.resolveFeishuRole.mockReturnValueOnce(null);
+
+    await adapter.handleMessage(makeDmEvent("/help"));
+
+    expect(sentMessages).toHaveLength(1);
+    expect(sentMessages[0].content).toContain("命令列表");
+    expect(mockAgent.ask).not.toHaveBeenCalled();
+  });
+
+  it("allows /role help for admins without an existing chat role", async () => {
+    mockDb.resolveFeishuRole.mockReturnValueOnce(null);
+
+    await adapter.handleMessage(makeDmEvent("/role", "ou_admin"));
+
+    expect(sentMessages).toHaveLength(1);
+    expect(sentMessages[0].content).toContain("/role assign <chat_id> <role>");
+    expect(sentMessages[0].content).toContain("为指定会话绑定 role");
+    expect(sentMessages[0].content).toContain("未单独配置的 group/p2p 会话设置默认 role");
+  });
+
+  it("rejects /role for non-admin users", async () => {
+    await adapter.handleMessage(makeDmEvent("/role assign oc_dm1 prod_readonly", "ou_user1"));
+
+    expect(sentMessages).toHaveLength(1);
+    expect(sentMessages[0].content).toContain("只有管理员可以执行 /role 命令");
+  });
+
+  it("routes /role assign for admins", async () => {
+    await adapter.handleMessage(makeDmEvent("/role assign oc_dm1 prod_readonly", "ou_admin"));
+
+    expect(mockDb.assignChatRole).toHaveBeenCalledWith("oc_dm1", "prod_readonly", "ou_admin");
+    expect(sentMessages).toHaveLength(1);
+    expect(sentMessages[0].content).toContain("已设置 role");
+  });
+
+  it("routes /role read and mutate subcommands for admins", async () => {
+    mockDb.getChatRole.mockReturnValueOnce("prod_readonly");
+    mockDb.listChatRoles.mockReturnValueOnce([{ chatId: "oc_dm1", role: "prod_readonly" }]);
+    mockDb.getChatTypeDefaultRole
+      .mockReturnValueOnce("default")
+      .mockReturnValueOnce(null);
+
+    await adapter.handleMessage(makeDmEvent("/role get oc_dm1", "ou_admin", { message_id: "om_role_get" }));
+    await adapter.handleMessage(makeDmEvent("/role list", "ou_admin", { message_id: "om_role_list" }));
+    await adapter.handleMessage(makeDmEvent("/role default group default", "ou_admin", { message_id: "om_role_default" }));
+    await adapter.handleMessage(makeDmEvent("/role default-revoke group", "ou_admin", { message_id: "om_role_default_revoke" }));
+    await adapter.handleMessage(makeDmEvent("/role revoke oc_dm1", "ou_admin", { message_id: "om_role_revoke" }));
+
+    expect(mockDb.setChatTypeDefaultRole).toHaveBeenCalledWith("group", "default", "ou_admin");
+    expect(mockDb.revokeChatTypeDefaultRole).toHaveBeenCalledWith("group");
+    expect(mockDb.revokeChatRole).toHaveBeenCalledWith("oc_dm1");
+    expect(sentMessages.some((msg) => msg.content.includes("当前 role: chat_id=oc_dm1, role=prod_readonly"))).toBe(true);
+    expect(sentMessages.some((msg) => msg.content.includes("当前已配置 1 个 chat role 绑定"))).toBe(true);
+    expect(sentMessages.some((msg) => msg.content.includes("已设置默认 role: chat_type=group, role=default"))).toBe(true);
+    expect(sentMessages.some((msg) => msg.content.includes("已删除默认 role: chat_type=group"))).toBe(true);
+    expect(sentMessages.some((msg) => msg.content.includes("已删除 role: chat_id=oc_dm1"))).toBe(true);
+  });
+
+  it("returns explained usage for invalid /role default arguments", async () => {
+    await adapter.handleMessage(makeDmEvent("/role default", "ou_admin", { message_id: "om_role_default_invalid" }));
+
+    expect(sentMessages).toHaveLength(1);
+    expect(sentMessages[0].content).toContain("用法: /role default <group|p2p> <role>");
+    expect(sentMessages[0].content).toContain("为未单独配置 chat_id 的 group/p2p 会话设置兜底 role");
+    expect(sentMessages[0].content).toContain("示例: /role default p2p default");
+  });
+
+  it("returns explained usage for other /role subcommands with invalid arguments", async () => {
+    await adapter.handleMessage(makeDmEvent("/role assign", "ou_admin", { message_id: "om_role_assign_invalid" }));
+    await adapter.handleMessage(makeDmEvent("/role revoke", "ou_admin", { message_id: "om_role_revoke_invalid" }));
+    await adapter.handleMessage(makeDmEvent("/role get", "ou_admin", { message_id: "om_role_get_invalid" }));
+    await adapter.handleMessage(makeDmEvent("/role list extra", "ou_admin", { message_id: "om_role_list_invalid" }));
+    await adapter.handleMessage(makeDmEvent("/role default-revoke", "ou_admin", { message_id: "om_role_default_revoke_invalid" }));
+
+    expect(sentMessages.some((msg) => msg.content.includes("用法: /role assign <chat_id> <role>") && msg.content.includes("为指定会话绑定 role"))).toBe(true);
+    expect(sentMessages.some((msg) => msg.content.includes("用法: /role revoke <chat_id>") && msg.content.includes("删除指定会话绑定"))).toBe(true);
+    expect(sentMessages.some((msg) => msg.content.includes("用法: /role get <chat_id>") && msg.content.includes("查看指定会话当前绑定的 role"))).toBe(true);
+    expect(sentMessages.some((msg) => msg.content.includes("用法: /role list") && msg.content.includes("列出所有 chat_id 绑定和默认角色"))).toBe(true);
+    expect(sentMessages.some((msg) => msg.content.includes("用法: /role default-revoke <group|p2p>") && msg.content.includes("删除 group/p2p 默认角色"))).toBe(true);
+  });
+
+  it("keeps /new behind the role gate when no role is configured", async () => {
+    mockDb.resolveFeishuRole.mockReturnValueOnce(null);
+
+    await adapter.handleMessage(makeDmEvent("/new"));
+
+    expect(sentMessages).toHaveLength(1);
+    expect(sentMessages[0].content).toContain("当前会话未配置权限角色");
+    expect(mockAgent.clearSession).not.toHaveBeenCalled();
   });
 
   it("returns unknown command when toolRegistry returns null in DM", async () => {
@@ -93,18 +235,7 @@ describe("FeishuAdapter", () => {
   it("routes group plugin command through toolRegistry", async () => {
     mockToolRegistry.handleCommand.mockResolvedValueOnce("group command result");
 
-    await adapter.handleMessage({
-      sender: { sender_id: { open_id: "ou_admin" }, sender_type: "user" },
-      message: {
-        message_id: "om_grp_cmd",
-        chat_id: "oc_group1",
-        chat_type: "group",
-        message_type: "text",
-        content: JSON.stringify({ text: "@_user_1 /repo list" }),
-        thread_id: "omt_thread1",
-        mentions: [{ key: "@_user_1", id: { open_id: "ou_bot_open_id" }, name: "GitMemo" }],
-      },
-    } as any);
+    await adapter.handleMessage(makeGroupEvent("@_user_1 /repo list", "ou_admin", { message_id: "om_grp_cmd" }));
 
     expect(sentMessages.length).toBe(1);
     expect(sentMessages[0].content).toContain("group command result");
@@ -112,7 +243,7 @@ describe("FeishuAdapter", () => {
       "repo",
       "list",
       [],
-      expect.objectContaining({ userId: "ou_admin", chatType: "group" })
+      expect.objectContaining({ userId: "ou_admin", chatType: "group", channel: "feishu", role: "default" })
     );
   });
 
@@ -135,22 +266,17 @@ describe("FeishuAdapter", () => {
   });
 
   it("routes group @mention to agent", async () => {
-    await adapter.handleMessage({
-      sender: { sender_id: { open_id: "ou_user1" }, sender_type: "user" },
-      message: {
-        message_id: "om_3",
-        chat_id: "oc_group1",
-        chat_type: "group",
-        message_type: "text",
-        content: JSON.stringify({ text: "@_user_1 What is this project about?" }),
-        thread_id: "omt_thread1",
-        mentions: [{ key: "@_user_1", id: { open_id: "ou_bot_open_id" }, name: "GitMemo" }],
-      },
-    } as any);
+    await adapter.handleMessage(makeGroupEvent("@_user_1 What is this project about?", "ou_user1", { message_id: "om_3" }));
 
     // Mock agent doesn't invoke tools, so no "thinking" message — just the reply
     expect(sentMessages.length).toBe(1);
     expect(sentMessages[0].content).toContain("Answer to:");
+    expect(mockAgent.ask).toHaveBeenCalledWith(
+      "What is this project about?",
+      expect.any(String),
+      expect.any(Function),
+      expect.objectContaining({ channel: "feishu", chatType: "group", chatId: "oc_group1", role: "default" }),
+    );
   });
 
   it("ignores group @mention of non-bot user", async () => {
@@ -290,6 +416,7 @@ describe("FeishuAdapter", () => {
         client: mockClient,
         agent: mockAgent,
         toolRegistry: mockToolRegistry,
+        db: mockDb,
       } as FeishuAdapterDeps),
       maxMessageAgeMs: 5000, // 5 seconds
     });
@@ -318,6 +445,7 @@ describe("FeishuAdapter", () => {
         client: mockClient,
         agent: mockAgent,
         toolRegistry: mockToolRegistry,
+        db: mockDb,
       } as FeishuAdapterDeps),
       maxMessageAgeMs: 5000,
     });
@@ -381,7 +509,8 @@ describe("FeishuAdapter", () => {
     expect(mockAgent.ask).toHaveBeenCalledWith(
       "给我10个满足以下条件的手机号\n1.存在期次是M1的有效保单\n2.存在二次进线",
       expect.any(String),
-      expect.any(Function)
+      expect.any(Function),
+      expect.objectContaining({ channel: "feishu", chatType: "p2p", chatId: "oc_dm1", role: "default" }),
     );
     expect(sentMessages.length).toBe(1);
     expect(sentMessages[0].content).toContain("Answer to:");

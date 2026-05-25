@@ -9,6 +9,7 @@
 ## 特性
 
 - **多通道接入**：飞书（WebSocket 私聊/群聊/话题线程）+ 浏览器 WebChat（JWT 认证、WebSocket 流式响应、多会话）
+- **会话级权限模型**：飞书消息按 `chat_id` / `chat_type` 解析 role，未配置时可直接拒绝，并支持管理员 `/role` 实时管理
 - **Agent 问答**：LLM 驱动的 Agentic Loop，支持 Anthropic Claude 和 OpenAI 兼容 API（Doubao/GLM/DeepSeek）
 - **全插件架构**：核心不含任何工具实现，所有能力由插件提供，自动发现、命名空间隔离、独立配置
 - **知识持久化**：自动索引 Git commit，LLM 生成摘要 + 向量 embedding，BM25 + 向量混合检索（RRF 融合）
@@ -125,6 +126,8 @@ webchat:                          # 可选
   enabled: true
   port: 8080
   password: "your-password"
+admins:                           # 可选，飞书管理员 open_id
+  - "ou_xxxxxxx"
 ```
 
 详见 [配置文档](docs/module-config-db.md) 和 [部署手册](docs/deployment.md)。
@@ -150,6 +153,7 @@ webchat:                          # 可选
 | 话题群跟进 | 同一话题内仍需 @知了 提问 |
 | 私聊 | 直接发消息，无需前缀 |
 | 仓库管理 | `/git-repos list`、`/git-repos status` |
+| 权限管理 | `/role help`、`/role assign <chat_id> <role>`、`/role default <group\|p2p> <role>` |
 | 重置会话 | `/new`、`/context`、`/help` |
 
 ### WebChat
@@ -187,6 +191,7 @@ npx tsx src/index.ts ../config.yaml
 - [部署手册](docs/deployment.md)
 - [配置与数据库](docs/module-config-db.md)
 - [飞书通道](docs/module-feishu.md)
+- [飞书权限模型与 /role 命令](docs/module-feishu.md#权限模型)
 - [通道抽象层](docs/module-channels.md)
 - [Agent 模块](docs/module-agent.md)
 - [Memo 知识服务](docs/module-memo.md)

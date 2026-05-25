@@ -93,6 +93,39 @@ describe("AgentInvoker (Anthropic)", () => {
     expect(mockAnthropicCreate).toHaveBeenCalledTimes(2);
   });
 
+  it("passes request context to tool execution in agentic loop", async () => {
+    mockAnthropicCreate.mockResolvedValueOnce({
+      content: [
+        { type: "tool_use", id: "call_1", name: "git_file_read", input: { repo: "proj", path: "README.md" } },
+      ],
+      stop_reason: "tool_use",
+      usage: { input_tokens: 10, output_tokens: 5 },
+    });
+
+    mockAnthropicCreate.mockResolvedValueOnce({
+      content: [{ type: "text", text: "done" }],
+      stop_reason: "end_turn",
+      usage: { input_tokens: 10, output_tokens: 5 },
+    });
+
+    const requestContext = {
+      channel: "feishu" as const,
+      chatType: "group" as const,
+      chatId: "oc_group_1",
+      userId: "ou_1",
+      role: "prod_readonly",
+      logId: "log1",
+    };
+
+    await invoker.ask("What's in the README?", "session-2ctx", undefined, requestContext);
+
+    expect(mockTools.executeTool).toHaveBeenCalledWith(
+      "git_file_read",
+      { repo: "proj", path: "README.md" },
+      requestContext,
+    );
+  });
+
   it("treats tool calls as actionable even when stop_reason is end_turn", async () => {
     mockAnthropicCreate.mockResolvedValueOnce({
       content: [

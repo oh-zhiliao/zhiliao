@@ -45,6 +45,45 @@
       └── 否则 → 忽略
 ```
 
+### 权限模型
+
+飞书入口在处理消息前会实时解析本次请求的 `role`，解析顺序如下：
+
+1. 先按 `chat_id` 查询 SQLite `role_bindings`
+2. 若未命中，再按 `chat_type` (`group` / `p2p`) 查询 `role_defaults`
+3. 若仍未命中，直接拒绝，不进入 Agent，也不调用插件
+
+`chat_id` 显式绑定优先级高于默认角色。命中后会把 `role` 连同 `channel/chatType/chatId/userId/logId` 一起放入请求上下文，传给 Agent 和插件工具链。
+
+### 角色缺失时的行为
+
+- `/help` 放行
+- 管理员 `/role ...` 放行
+- 其他消息直接回复未配置提示，文案包含 `chat_id`，方便管理员复制去配置
+
+### /role 管理命令
+
+`/role` 仅管理员可用；管理员身份按消息发送者的飞书 `open_id` 与 `config.yaml` 中的 `admins` 列表匹配。
+
+支持的子命令：
+
+- `/role help` — 查看所有子命令说明
+- `/role assign <chat_id> <role>` — 为指定会话绑定 role
+- `/role revoke <chat_id>` — 删除指定会话绑定
+- `/role get <chat_id>` — 查看指定会话当前绑定的 role
+- `/role list` — 列出所有 `chat_id` 绑定和 `group/p2p` 默认角色
+- `/role default <group|p2p> <role>` — 为未单独配置的 `group/p2p` 会话设置默认 role
+- `/role default-revoke <group|p2p>` — 删除 `group/p2p` 默认 role
+
+当参数不完整或错误时，每个子命令都会返回各自的“用法 + 作用 + 示例”，而不是只返回命令骨架。
+
+### 入口日志
+
+每次飞书请求在入口都会记录 role 解析结果：
+
+- 命中时：`role matched: role=<role> source=<chat|chat_type_default> chatType=<...> chat=<chat_id>`
+- 未命中时：`role missing: chatType=<...> chat=<chat_id>`
+
 ### 特性
 
 - **logId 追踪**: 每条消息生成 `genLogId()`，贯穿整个处理链路
