@@ -450,7 +450,7 @@ export class FeishuAdapter {
   }
 
   private buildMissingRoleMessage(ctx: FeishuMessageContext): string {
-    return `当前会话未配置权限角色。chat_type=${ctx.chatType}, chat_id=${ctx.chatId}。请管理员执行 /role assign <chat_id> <role>，或为该 chat_type 设置默认 role。`;
+    return `当前会话未配置权限角色。chat_type=${ctx.chatType}, chat_id=${ctx.chatId}。请管理员执行 /role assign chat_id role，或为该 chat_type 设置默认 role。`;
   }
 
   private buildCommandContext(ctx: FeishuMessageContext, role: string): CommandCallContext {
@@ -489,12 +489,12 @@ export class FeishuAdapter {
       "",
       "角色管理命令:",
       "/role help: 显示本帮助",
-      "/role assign <chat_id> <role>: 为指定会话绑定 role，优先级高于默认角色",
-      "/role revoke <chat_id>: 删除指定会话绑定，之后会回退到默认角色或报错",
-      "/role get <chat_id>: 查看指定会话当前绑定的 role",
+      "/role assign chat_id role: 为指定会话绑定 role，优先级高于默认角色",
+      "/role revoke chat_id: 删除指定会话绑定，之后会回退到默认角色或报错",
+      "/role get chat_id: 查看指定会话当前绑定的 role",
       "/role list: 列出所有 chat_id 绑定和 group/p2p 默认角色",
-      "/role default <group|p2p> <role>: 为未单独配置的 group/p2p 会话设置默认 role",
-      "/role default-revoke <group|p2p>: 删除 group/p2p 默认角色，之后未单独配置的会话会报错",
+      "/role default group|p2p role: 为未单独配置的 group/p2p 会话设置默认 role",
+      "/role default-revoke group|p2p: 删除 group/p2p 默认角色，之后未单独配置的会话会报错",
       "",
       "示例:",
       "/role assign oc_xxx prod_readonly",
@@ -504,7 +504,7 @@ export class FeishuAdapter {
 
   private getRoleDefaultUsageText(): string {
     return [
-      "用法: /role default <group|p2p> <role>",
+      "用法: /role default group|p2p role",
       "作用: 为未单独配置 chat_id 的 group/p2p 会话设置兜底 role。",
       "优先级: chat_id 显式绑定高于默认角色。",
       "示例: /role default p2p default",
@@ -513,7 +513,7 @@ export class FeishuAdapter {
 
   private getRoleAssignUsageText(): string {
     return [
-      "用法: /role assign <chat_id> <role>",
+      "用法: /role assign chat_id role",
       "作用: 为指定会话绑定 role，优先级高于默认角色。",
       "示例: /role assign oc_xxx prod_readonly",
     ].join("\n");
@@ -521,7 +521,7 @@ export class FeishuAdapter {
 
   private getRoleRevokeUsageText(): string {
     return [
-      "用法: /role revoke <chat_id>",
+      "用法: /role revoke chat_id",
       "作用: 删除指定会话绑定，之后会回退到默认角色或报错。",
       "示例: /role revoke oc_xxx",
     ].join("\n");
@@ -529,7 +529,7 @@ export class FeishuAdapter {
 
   private getRoleGetUsageText(): string {
     return [
-      "用法: /role get <chat_id>",
+      "用法: /role get chat_id",
       "作用: 查看指定会话当前绑定的 role。",
       "示例: /role get oc_xxx",
     ].join("\n");
@@ -545,7 +545,7 @@ export class FeishuAdapter {
 
   private getRoleDefaultRevokeUsageText(): string {
     return [
-      "用法: /role default-revoke <group|p2p>",
+      "用法: /role default-revoke group|p2p",
       "作用: 删除 group/p2p 默认角色，之后未单独配置的会话会报错。",
       "示例: /role default-revoke p2p",
     ].join("\n");

@@ -140,7 +140,8 @@ describe("FeishuAdapter", () => {
     await adapter.handleMessage(makeDmEvent("/role", "ou_admin"));
 
     expect(sentMessages).toHaveLength(1);
-    expect(sentMessages[0].content).toContain("/role assign <chat_id> <role>");
+    expect(sentMessages[0].content).toContain("/role assign chat_id role");
+    expect(sentMessages[0].content).not.toContain("<chat_id>");
     expect(sentMessages[0].content).toContain("为指定会话绑定 role");
     expect(sentMessages[0].content).toContain("未单独配置的 group/p2p 会话设置默认 role");
   });
@@ -198,7 +199,7 @@ describe("FeishuAdapter", () => {
     await adapter.handleMessage(makeDmEvent("/role default", "ou_admin", { message_id: "om_role_default_invalid" }));
 
     expect(sentMessages).toHaveLength(1);
-    expect(sentMessages[0].content).toContain("用法: /role default <group|p2p> <role>");
+    expect(sentMessages[0].content).toContain("用法: /role default group|p2p role");
     expect(sentMessages[0].content).toContain("为未单独配置 chat_id 的 group/p2p 会话设置兜底 role");
     expect(sentMessages[0].content).toContain("示例: /role default p2p default");
   });
@@ -210,11 +211,11 @@ describe("FeishuAdapter", () => {
     await adapter.handleMessage(makeDmEvent("/role list extra", "ou_admin", { message_id: "om_role_list_invalid" }));
     await adapter.handleMessage(makeDmEvent("/role default-revoke", "ou_admin", { message_id: "om_role_default_revoke_invalid" }));
 
-    expect(sentMessages.some((msg) => msg.content.includes("用法: /role assign <chat_id> <role>") && msg.content.includes("为指定会话绑定 role"))).toBe(true);
-    expect(sentMessages.some((msg) => msg.content.includes("用法: /role revoke <chat_id>") && msg.content.includes("删除指定会话绑定"))).toBe(true);
-    expect(sentMessages.some((msg) => msg.content.includes("用法: /role get <chat_id>") && msg.content.includes("查看指定会话当前绑定的 role"))).toBe(true);
+    expect(sentMessages.some((msg) => msg.content.includes("用法: /role assign chat_id role") && msg.content.includes("为指定会话绑定 role"))).toBe(true);
+    expect(sentMessages.some((msg) => msg.content.includes("用法: /role revoke chat_id") && msg.content.includes("删除指定会话绑定"))).toBe(true);
+    expect(sentMessages.some((msg) => msg.content.includes("用法: /role get chat_id") && msg.content.includes("查看指定会话当前绑定的 role"))).toBe(true);
     expect(sentMessages.some((msg) => msg.content.includes("用法: /role list") && msg.content.includes("列出所有 chat_id 绑定和默认角色"))).toBe(true);
-    expect(sentMessages.some((msg) => msg.content.includes("用法: /role default-revoke <group|p2p>") && msg.content.includes("删除 group/p2p 默认角色"))).toBe(true);
+    expect(sentMessages.some((msg) => msg.content.includes("用法: /role default-revoke group|p2p") && msg.content.includes("删除 group/p2p 默认角色"))).toBe(true);
   });
 
   it("keeps /new behind the role gate when no role is configured", async () => {
