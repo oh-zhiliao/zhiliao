@@ -126,6 +126,28 @@ describe("AgentInvoker (Anthropic)", () => {
     );
   });
 
+  it("builds tool definitions and system prompt addendum with request context", async () => {
+    mockAnthropicCreate.mockResolvedValueOnce({
+      content: [{ type: "text", text: "done" }],
+      stop_reason: "end_turn",
+      usage: { input_tokens: 10, output_tokens: 5 },
+    });
+
+    const requestContext = {
+      channel: "feishu" as const,
+      chatType: "group" as const,
+      chatId: "oc_group_1",
+      userId: "ou_u1",
+      role: "complaint",
+      logId: "log1",
+    };
+
+    await invoker.ask("hello", "session-ctx-meta", undefined, requestContext);
+
+    expect(mockTools.getToolDefinitions).toHaveBeenCalledWith(requestContext);
+    expect(mockTools.getSystemPromptAddendum).toHaveBeenCalledWith(requestContext);
+  });
+
   it("treats tool calls as actionable even when stop_reason is end_turn", async () => {
     mockAnthropicCreate.mockResolvedValueOnce({
       content: [

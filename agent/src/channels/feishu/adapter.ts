@@ -460,6 +460,7 @@ export class FeishuAdapter {
       chatType: ctx.chatType,
       chatId: ctx.chatId,
       logId: ctx.logId,
+      isAdmin: this.isAdmin(ctx.senderId),
     };
   }
 

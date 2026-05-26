@@ -113,6 +113,31 @@ describe("ToolRegistry", () => {
     expect(addendum).toContain("K8s tools available.");
   });
 
+  it("passes request context into tool definitions and system prompt addendum", () => {
+    const p = makePlugin("mysql-query", ["query"]);
+    p.getToolDefinitions = vi.fn((ctx?: RequestContext) => [
+      { name: `query-${ctx?.role ?? "none"}`, description: "d", input_schema: {} },
+    ]);
+    p.getSystemPromptAddendum = vi.fn((ctx?: RequestContext) => `role=${ctx?.role ?? "none"}`);
+    registry.register(p);
+
+    const requestContext: RequestContext = {
+      channel: "feishu",
+      chatType: "group",
+      chatId: "oc_group_1",
+      userId: "u1",
+      role: "complaint",
+      logId: "log1",
+    };
+    const defs = registry.getToolDefinitions(requestContext);
+    const addendum = registry.getSystemPromptAddendum(requestContext);
+
+    expect(defs[0].name).toBe("mysql-query.query-complaint");
+    expect(addendum).toContain("role=complaint");
+    expect(p.getToolDefinitions).toHaveBeenCalledWith(requestContext);
+    expect(p.getSystemPromptAddendum).toHaveBeenCalledWith(requestContext);
+  });
+
   it("merges secret patterns from all plugins", () => {
     const p1 = makePlugin("cls-query", ["search"]);
     p1.getSecretPatterns = () => [/TENCENTCLOUD_SECRET/g];
@@ -167,21 +192,21 @@ describe("ToolRegistry command routing", () => {
     });
     registry.register(plugin);
 
-    const ctx: CommandCallContext = { userId: "u1", chatType: "p2p", chatId: "c1", logId: "log1", channel: "feishu", role: "prod_readonly" };
+    const ctx: CommandCallContext = { userId: "u1", chatType: "p2p", chatId: "c1", logId: "log1", channel: "feishu", role: "prod_readonly", isAdmin: true };
     const result = await registry.handleCommand("git-repos", "list", [], ctx);
     expect(result).toBe("repo list result");
     expect(handler).toHaveBeenCalledWith([], ctx);
   });
 
   it("returns null for unknown plugin command", async () => {
-    const ctx: CommandCallContext = { userId: "u1", chatType: "p2p", chatId: "c1", logId: "log1" };
+    const ctx: CommandCallContext = { userId: "u1", chatType: "p2p", chatId: "c1", logId: "log1", isAdmin: false };
     const result = await registry.handleCommand("nonexistent", "list", [], ctx);
     expect(result).toBeNull();
   });
 
   it("returns null for plugin without command handlers", async () => {
     registry.register(makePlugin("cls-query", ["search"]));
-    const ctx: CommandCallContext = { userId: "u1", chatType: "p2p", chatId: "c1", logId: "log1" };
+    const ctx: CommandCallContext = { userId: "u1", chatType: "p2p", chatId: "c1", logId: "log1", isAdmin: false };
     const result = await registry.handleCommand("cls-query", "search", [], ctx);
     expect(result).toBeNull();
   });
@@ -194,7 +219,7 @@ describe("ToolRegistry command routing", () => {
     });
     registry.register(plugin);
 
-    const ctx: CommandCallContext = { userId: "u1", chatType: "p2p", chatId: "c1", logId: "log1" };
+    const ctx: CommandCallContext = { userId: "u1", chatType: "p2p", chatId: "c1", logId: "log1", isAdmin: false };
     const result = await registry.handleCommand("git-repos", "unknown", [], ctx);
     expect(result).toBeNull();
   });

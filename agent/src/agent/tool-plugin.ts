@@ -17,7 +17,7 @@ export interface ToolPlugin {
   destroy?(): Promise<void>;
 
   /** Tool definitions with names WITHOUT prefix (loader adds "{folder}." prefix). */
-  getToolDefinitions(): ToolDefinition[];
+  getToolDefinitions(context?: RequestContext): ToolDefinition[];
 
   /** Execute a tool by its unprefixed name. Returns result string or error string. */
   executeTool(name: string, input: Record<string, any>, context?: RequestContext): Promise<string>;
@@ -29,7 +29,7 @@ export interface ToolPlugin {
   summarizeInput?(name: string, input: Record<string, any>): string;
 
   /** Extra text appended to the agent system prompt describing this plugin's tools. */
-  getSystemPromptAddendum?(): string;
+  getSystemPromptAddendum?(context?: RequestContext): string;
 
   /** Additional regex patterns for secret filtering in tool output. */
   getSecretPatterns?(): RegExp[];
@@ -69,6 +69,7 @@ export interface CommandCallContext {
   logId: string;
   channel?: "feishu" | "webchat";
   role?: string;
+  isAdmin: boolean;
 }
 
 /** Command handler returned by plugins. Subcommands keyed by name. */

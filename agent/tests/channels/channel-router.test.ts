@@ -81,6 +81,7 @@ describe("ChannelRouter", () => {
         chatId: "test",
         channel: "webchat",
         role: undefined,
+        isAdmin: false,
       }),
     );
     expect(channel.sendReply).toHaveBeenCalledWith(ctx, "plugin response");

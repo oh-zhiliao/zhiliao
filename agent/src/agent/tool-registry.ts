@@ -26,11 +26,11 @@ export class ToolRegistry {
     }
   }
 
-  getToolDefinitions(): ToolDefinition[] {
+  getToolDefinitions(context?: RequestContext): ToolDefinition[] {
     const allDefs: ToolDefinition[] = [];
     for (const [name, plugin] of this.plugins) {
       const prefix = name === BUILTIN_PLUGIN_NAME ? "" : `${name}.`;
-      for (const def of plugin.getToolDefinitions()) {
+      for (const def of plugin.getToolDefinitions(context)) {
         allDefs.push({ ...def, name: `${prefix}${def.name}` });
       }
     }
@@ -72,10 +72,10 @@ export class ToolRegistry {
     return JSON.stringify(input).slice(0, 60);
   }
 
-  getSystemPromptAddendum(): string {
+  getSystemPromptAddendum(context?: RequestContext): string {
     const parts: string[] = [];
     for (const plugin of this.plugins.values()) {
-      const addendum = plugin.getSystemPromptAddendum?.();
+      const addendum = plugin.getSystemPromptAddendum?.(context);
       if (addendum) parts.push(addendum);
     }
     return parts.join("\n\n");

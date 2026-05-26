@@ -106,7 +106,7 @@ describe("FeishuAdapter", () => {
       "repo",
       "list",
       [],
-      expect.objectContaining({ userId: "ou_admin", chatType: "p2p", channel: "feishu", role: "default" })
+      expect.objectContaining({ userId: "ou_admin", chatType: "p2p", channel: "feishu", role: "default", isAdmin: true })
     );
     expect(logSpy).toHaveBeenCalledWith(
       expect.stringContaining("role matched: role=default source=chat_type_default")
@@ -243,7 +243,7 @@ describe("FeishuAdapter", () => {
       "repo",
       "list",
       [],
-      expect.objectContaining({ userId: "ou_admin", chatType: "group", channel: "feishu", role: "default" })
+      expect.objectContaining({ userId: "ou_admin", chatType: "group", channel: "feishu", role: "default", isAdmin: true })
     );
   });
 

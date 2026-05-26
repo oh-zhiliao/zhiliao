@@ -217,9 +217,9 @@ export class AgentInvoker {
     // Trim history
     this.trimHistory(entry);
 
-    const toolDefs = this.tools?.getToolDefinitions() ?? [];
+    const toolDefs = this.tools?.getToolDefinitions(requestContext) ?? [];
 
-    const addendum = this.tools?.getSystemPromptAddendum() ?? "";
+    const addendum = this.tools?.getSystemPromptAddendum(requestContext) ?? "";
     const tz = this.config.timezone;
     const now = new Date();
     const dateStr = tz
@@ -373,9 +373,9 @@ export class AgentInvoker {
     // Trim history
     this.trimHistory(entry);
 
-    const toolDefs = this.tools?.getToolDefinitions() ?? [];
+    const toolDefs = this.tools?.getToolDefinitions(requestContext) ?? [];
 
-    const addendum = this.tools?.getSystemPromptAddendum() ?? "";
+    const addendum = this.tools?.getSystemPromptAddendum(requestContext) ?? "";
     const tz = this.config.timezone;
     const now = new Date();
     const dateStr = tz

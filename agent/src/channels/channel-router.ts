@@ -71,6 +71,7 @@ export class ChannelRouter {
       logId: context.messageId ?? "",
       channel: "webchat" as const,
       role: context.requestContext?.role,
+      isAdmin: false,
     };
     const result = await this.toolRegistry.handleCommand(command, subcommand ?? "", args, callCtx);
     if (result !== null) {
