@@ -145,6 +145,17 @@ describe("FeishuAdapter", () => {
     expect(sentMessages[0].content).toContain("未单独配置的 group/p2p 会话设置默认 role");
   });
 
+  it("includes the current chat id and resolved role in bare /role help", async () => {
+    mockDb.resolveFeishuRole.mockReturnValueOnce({ role: "complaint", source: "chat" });
+
+    await adapter.handleMessage(makeDmEvent("/role", "ou_admin"));
+
+    expect(sentMessages).toHaveLength(1);
+    expect(sentMessages[0].content).toContain("当前会话:");
+    expect(sentMessages[0].content).toContain("chat_id=oc_dm1");
+    expect(sentMessages[0].content).toContain("role=complaint");
+  });
+
   it("rejects /role for non-admin users", async () => {
     await adapter.handleMessage(makeDmEvent("/role assign oc_dm1 prod_readonly", "ou_user1"));
 

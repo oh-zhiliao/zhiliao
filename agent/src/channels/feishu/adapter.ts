@@ -475,8 +475,18 @@ export class FeishuAdapter {
     };
   }
 
-  private getRoleHelpText(): string {
+  private getCurrentRoleSummaryText(ctx: FeishuMessageContext): string {
+    const resolved = this.deps.db.resolveFeishuRole(ctx.chatId, ctx.chatType);
+    const roleText = resolved
+      ? `role=${resolved.role}, source=${resolved.source}`
+      : "role=未配置";
+    return `当前会话: chat_type=${ctx.chatType}, chat_id=${ctx.chatId}, ${roleText}`;
+  }
+
+  private getRoleHelpText(ctx: FeishuMessageContext): string {
     return [
+      this.getCurrentRoleSummaryText(ctx),
+      "",
       "角色管理命令:",
       "/role help: 显示本帮助",
       "/role assign <chat_id> <role>: 为指定会话绑定 role，优先级高于默认角色",
@@ -554,7 +564,7 @@ export class FeishuAdapter {
     const sub = subcommand ?? "help";
     switch (sub) {
       case "help":
-        await this.reply(ctx, this.getRoleHelpText());
+        await this.reply(ctx, this.getRoleHelpText(ctx));
         return;
       case "assign": {
         if (args.length !== 2) {
