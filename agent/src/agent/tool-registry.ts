@@ -38,6 +38,10 @@ export class ToolRegistry {
   }
 
   async executeTool(fullName: string, input: Record<string, any>, context?: RequestContext): Promise<string> {
+    if (context && !this.isToolVisible(fullName, context)) {
+      return `Tool not available in this context: ${fullName}`;
+    }
+
     const dotIdx = fullName.indexOf(".");
     if (dotIdx === -1) {
       if (!this.knownTools.has(fullName)) return `Unknown tool: ${fullName}`;
@@ -143,5 +147,9 @@ export class ToolRegistry {
       return { plugin: this.plugins.get(BUILTIN_PLUGIN_NAME), toolName: fullName };
     }
     return { plugin: this.plugins.get(fullName.slice(0, dotIdx)), toolName: fullName.slice(dotIdx + 1) };
+  }
+
+  private isToolVisible(fullName: string, context: RequestContext): boolean {
+    return this.getToolDefinitions(context).some((def) => def.name === fullName);
   }
 }

@@ -114,6 +114,19 @@ describe("FeishuAdapter", () => {
     logSpy.mockRestore();
   });
 
+  it("filters Feishu DM plugin command replies before sending", async () => {
+    mockToolRegistry.handleCommand.mockResolvedValueOnce("token=SECRET_VALUE");
+    mockToolRegistry.filterOutput.mockImplementation((text: string) =>
+      text.replace(/SECRET_VALUE/g, "[FILTERED]")
+    );
+
+    await adapter.handleMessage(makeDmEvent("/repo list", "ou_admin", { message_id: "om_filter_dm_cmd" }));
+
+    expect(sentMessages).toHaveLength(1);
+    expect(sentMessages[0].content).toContain("[FILTERED]");
+    expect(sentMessages[0].content).not.toContain("SECRET_VALUE");
+  });
+
   it("rejects non-role commands when no role is configured", async () => {
     mockDb.resolveFeishuRole.mockReturnValueOnce(null);
 
@@ -259,6 +272,19 @@ describe("FeishuAdapter", () => {
     );
   });
 
+  it("filters Feishu group plugin command replies before sending", async () => {
+    mockToolRegistry.handleCommand.mockResolvedValueOnce("token=SECRET_VALUE");
+    mockToolRegistry.filterOutput.mockImplementation((text: string) =>
+      text.replace(/SECRET_VALUE/g, "[FILTERED]")
+    );
+
+    await adapter.handleMessage(makeGroupEvent("@_user_1 /repo list", "ou_admin", { message_id: "om_filter_group_cmd" }));
+
+    expect(sentMessages).toHaveLength(1);
+    expect(sentMessages[0].content).toContain("[FILTERED]");
+    expect(sentMessages[0].content).not.toContain("SECRET_VALUE");
+  });
+
   it("returns unknown command in group when toolRegistry returns null", async () => {
     await adapter.handleMessage({
       sender: { sender_id: { open_id: "ou_admin" }, sender_type: "user" },
@@ -289,6 +315,21 @@ describe("FeishuAdapter", () => {
       expect.any(Function),
       expect.objectContaining({ channel: "feishu", chatType: "group", chatId: "oc_group1", role: "default" }),
     );
+  });
+
+  it("uses different Feishu agent sessions when the resolved role changes", async () => {
+    mockDb.resolveFeishuRole
+      .mockReturnValueOnce({ role: "prod_admin", source: "chat" })
+      .mockReturnValueOnce({ role: "prod_readonly", source: "chat" });
+
+    await adapter.handleMessage(makeGroupEvent("@_user_1 first", "ou_user1", { message_id: "om_role_session_1" }));
+    await adapter.handleMessage(makeGroupEvent("@_user_1 second", "ou_user1", { message_id: "om_role_session_2" }));
+
+    const firstSession = mockAgent.ask.mock.calls[0][1];
+    const secondSession = mockAgent.ask.mock.calls[1][1];
+    expect(firstSession).toContain("prod_admin");
+    expect(secondSession).toContain("prod_readonly");
+    expect(firstSession).not.toBe(secondSession);
   });
 
   it("ignores group @mention of non-bot user", async () => {
@@ -662,5 +703,13 @@ describe("FeishuAdapter", () => {
     expect(sentMessages.length).toBe(1);
     // Should not go through toolRegistry
     expect(mockToolRegistry.handleCommand).not.toHaveBeenCalled();
+  });
+
+  it("clears the current role-scoped Feishu session for /new", async () => {
+    mockDb.resolveFeishuRole.mockReturnValueOnce({ role: "prod_readonly", source: "chat" });
+
+    await adapter.handleMessage(makeDmEvent("/new", "ou_user1", { message_id: "om_new_role_scoped" }));
+
+    expect(mockAgent.clearSession).toHaveBeenCalledWith(expect.stringContaining("prod_readonly"));
   });
 });

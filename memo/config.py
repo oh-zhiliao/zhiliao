@@ -11,31 +11,37 @@ class MemoConfig:
     embedding_base_url: str
     embedding_model: str
     data_dir: str
+    auth_token: str
     embedding_api_key: str = ""
     decay_after_days: int = 30
     llm_timeout: float = 60.0
 
 
 def _load_yaml_config(path: str = "/app/config.yaml") -> dict:
-    """Load config.yaml and return the llm section, or empty dict if unavailable."""
+    """Load config.yaml and return the whole config, or empty dict if unavailable."""
     path = os.environ.get("MEMO_CONFIG_PATH", path)
     try:
         import yaml
         with open(path) as f:
             cfg = yaml.safe_load(f)
-        return cfg.get("llm", {}) if cfg else {}
+        return cfg or {}
     except Exception:
         return {}
 
 
 def load_config() -> MemoConfig:
     yaml_cfg = _load_yaml_config()
-    memo_cfg = yaml_cfg.get("memo", {})
-    emb_cfg = yaml_cfg.get("embedding", {})
+    llm_cfg = yaml_cfg.get("llm", {})
+    memo_cfg = llm_cfg.get("memo", {})
+    emb_cfg = llm_cfg.get("embedding", {})
+    service_cfg = yaml_cfg.get("memo", {})
 
     api_key = os.environ.get("MEMO_LLM_API_KEY", "") or memo_cfg.get("api_key", "")
     if not api_key:
         raise ValueError("MEMO_LLM_API_KEY env var or llm.memo.api_key in config.yaml is required")
+    auth_token = os.environ.get("MEMO_AUTH_TOKEN", "") or service_cfg.get("auth_token", "")
+    if not auth_token:
+        raise ValueError("MEMO_AUTH_TOKEN env var or memo.auth_token in config.yaml is required")
 
     llm_base = os.environ.get("MEMO_LLM_BASE_URL", "") or memo_cfg.get("base_url", "https://api.deepseek.com/v1")
     emb_base = os.environ.get("MEMO_EMBEDDING_BASE_URL", "") or emb_cfg.get("base_url", llm_base)
@@ -49,6 +55,7 @@ def load_config() -> MemoConfig:
         embedding_base_url=emb_base,
         embedding_model=os.environ.get("MEMO_EMBEDDING_MODEL", "") or emb_cfg.get("model", "deepseek-embedding"),
         data_dir=os.environ.get("MEMO_DATA_DIR", "/app/data"),
+        auth_token=auth_token,
         embedding_api_key=embedding_api_key,
         decay_after_days=int(os.environ.get("MEMO_DECAY_AFTER_DAYS", "30")),
         llm_timeout=float(os.environ.get("MEMO_LLM_TIMEOUT", "60")),

@@ -75,7 +75,7 @@ export class ChannelRouter {
     };
     const result = await this.toolRegistry.handleCommand(command, subcommand ?? "", args, callCtx);
     if (result !== null) {
-      await channel.sendReply(context, result);
+      await channel.sendReply(context, this.filterReplyText(result));
       return;
     }
 
@@ -95,12 +95,16 @@ export class ChannelRouter {
 
     try {
       const response = await this.agent.ask(question, sessionKey, onProgress, this.buildRequestContext(channel, context));
-      const secretFiltered = filterSecrets(response.text, this.secretPatterns);
-      const filtered = this.toolRegistry.filterOutput(secretFiltered);
+      const filtered = this.filterReplyText(response.text);
       await channel.sendReply(context, filtered);
     } catch (e: any) {
       const code = e.status ?? e.code ?? "UNKNOWN";
       await channel.sendReply(context, `处理失败 (code: ${code})\n请稍后重试。`);
     }
+  }
+
+  private filterReplyText(text: string): string {
+    const secretFiltered = filterSecrets(text, this.secretPatterns);
+    return this.toolRegistry.filterOutput(secretFiltered);
   }
 }

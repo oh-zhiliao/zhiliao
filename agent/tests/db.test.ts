@@ -159,15 +159,15 @@ describe("ZhiliaoDB", () => {
       expect(() => db.setChatTypeDefaultRole("group", "bad role", "ou_admin")).toThrow("Invalid role");
     });
 
-    it("seeds rollout defaults only when upgrading an existing database", () => {
+    it("does not seed fallback roles when upgrading an existing database", () => {
       db.close();
       rmSync(TEST_DB, { force: true });
       createSchemaV2Database(TEST_DB);
 
       const upgraded = new ZhiliaoDB(TEST_DB);
       try {
-        expect(upgraded.getChatTypeDefaultRole("group")).toBe("default");
-        expect(upgraded.getChatTypeDefaultRole("p2p")).toBe("default");
+        expect(upgraded.getChatTypeDefaultRole("group")).toBeNull();
+        expect(upgraded.getChatTypeDefaultRole("p2p")).toBeNull();
       } finally {
         upgraded.close();
       }

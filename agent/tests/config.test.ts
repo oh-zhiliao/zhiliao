@@ -135,4 +135,60 @@ llm:
 
     expect(() => loadConfig(configPath)).toThrow("llm.agent.max_tool_iterations");
   });
+
+  it("rejects enabled WebChat without an explicit non-default password", () => {
+    const configPath = join(TEST_DIR, "config-webchat-insecure.yaml");
+    const baseConfig = `
+project:
+  name: "test"
+feishu:
+  app_id: "cli_test"
+  app_secret: "secret123"
+  event_mode: "websocket"
+llm:
+  agent:
+    provider: "anthropic"
+    model: "claude-sonnet-4-20250514"
+  memo:
+    provider: "openai_compatible"
+    base_url: "https://api.deepseek.com/v1"
+    model: "deepseek-chat"
+  embedding:
+    provider: "openai_compatible"
+    base_url: "https://api.deepseek.com/v1"
+    model: "deepseek-embedding"
+`;
+
+    writeFileSync(
+      configPath,
+      `${baseConfig}
+webchat:
+  enabled: true
+  password: "changeme"
+`
+    );
+
+    expect(() => loadConfig(configPath)).toThrow("webchat.password");
+
+    writeFileSync(
+      configPath,
+      `${baseConfig}
+webchat:
+  enabled: true
+`
+    );
+
+    expect(() => loadConfig(configPath)).toThrow("webchat.password");
+
+    writeFileSync(
+      configPath,
+      `${baseConfig}
+webchat:
+  enabled: true
+  password: "short"
+`
+    );
+
+    expect(() => loadConfig(configPath)).toThrow("webchat.password");
+  });
 });

@@ -6,7 +6,7 @@ export class WebChatChannel implements Channel {
   private activeSockets = new Map<string, WebSocket>();
 
   getSessionKey(context: ChannelMessageContext): string {
-    return `webchat:${context.extra.sessionId}`;
+    return context.sessionKey || `webchat:${context.extra.sessionId}`;
   }
 
   supportsStreaming(): boolean {
@@ -27,7 +27,8 @@ export class WebChatChannel implements Channel {
 
   async sendReply(context: ChannelMessageContext, content: string): Promise<void> {
     const sessionId = context.extra.sessionId as string;
-    const ws = this.activeSockets.get(sessionId);
+    const socketKey = (context.extra.socketKey as string | undefined) ?? sessionId;
+    const ws = this.activeSockets.get(socketKey);
     if (ws?.readyState === 1) {
       ws.send(JSON.stringify({ type: "message_complete", sessionId, content }));
     }
@@ -39,7 +40,8 @@ export class WebChatChannel implements Channel {
 
   async sendStreamDelta(context: ChannelMessageContext, delta: StreamDelta): Promise<void> {
     const sessionId = context.extra.sessionId as string;
-    const ws = this.activeSockets.get(sessionId);
+    const socketKey = (context.extra.socketKey as string | undefined) ?? sessionId;
+    const ws = this.activeSockets.get(socketKey);
     if (ws?.readyState === 1) {
       ws.send(JSON.stringify({ ...delta, sessionId }));
     }

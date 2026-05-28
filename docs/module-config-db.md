@@ -30,6 +30,10 @@ llm:
     provider: "openai_compatible"
     base_url: "http://127.0.0.1:11434/v1"
     model: "qwen3-embedding:0.6b"
+memo:
+  enabled: true
+  url: "http://127.0.0.1:8090"
+  auth_token: "replace-with-random-token"
 # 以下已迁移到插件 config.yaml，核心配置中可选保留
 git:                                   # optional, used by git-repos plugin
   poll_interval_minutes: 5
@@ -46,7 +50,7 @@ admins:
   - "ou_e821f98839568fee66f98eed73c1770f"
 ```
 
-**验证**: 必填字段 (`project.name`, `feishu.app_id`, `feishu.app_secret`, `llm.agent.model`) 缺失时 fail-fast 抛异常。`git` 和 `admins` 为可选。
+**验证**: 必填字段 (`project.name`, `feishu.app_id`, `feishu.app_secret`, `llm.agent.model`) 缺失时 fail-fast 抛异常。启用 WebChat 时必须显式配置非默认 `webchat.password`。`git` 和 `admins` 为可选。
 
 ## db.ts
 
