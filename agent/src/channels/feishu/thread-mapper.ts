@@ -14,22 +14,25 @@ export interface ParsedSessionKey {
   chatId: string;
   threadOrUserId: string;
   isDM: boolean;
+  role?: string;
 }
 
-export function buildSessionKey(ctx: FeishuMessageContext): string {
+export function buildSessionKey(ctx: FeishuMessageContext, role?: string): string {
+  const rolePart = role ? `:role:${encodeURIComponent(role)}` : "";
   if (ctx.chatType === "p2p") {
-    return `feishu:p2p:${ctx.senderId}`;
+    return `feishu:p2p:${ctx.senderId}${rolePart}`;
   }
   const threadPart = ctx.threadId ?? "main";
-  return `feishu:${ctx.chatId}:${threadPart}`;
+  return `feishu:${ctx.chatId}:${threadPart}${rolePart}`;
 }
 
 export function parseSessionKey(key: string): ParsedSessionKey {
-  const [channel, chatId, threadOrUserId] = key.split(":");
+  const [channel, chatId, threadOrUserId, marker, encodedRole] = key.split(":");
   return {
     channel,
     chatId,
     threadOrUserId,
     isDM: chatId === "p2p",
+    ...(marker === "role" && encodedRole ? { role: decodeURIComponent(encodedRole) } : {}),
   };
 }

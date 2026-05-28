@@ -251,7 +251,7 @@ export class FeishuAdapter {
         return;
       }
 
-      if (await this.handleSessionCommand(ctx, parsed.command)) return;
+      if (await this.handleSessionCommand(ctx, parsed.command, resolvedRole.role)) return;
 
       // Try plugin commands: /{plugin-name} {subcommand} {args}
       const callCtx = this.buildCommandContext(ctx, resolvedRole.role);
@@ -263,7 +263,7 @@ export class FeishuAdapter {
       );
       if (result !== null) {
         console.log(`[${ctx.logId}] command /${parsed.command} ${parsed.subcommand ?? ""} reply len=${result.length}`);
-        await this.reply(ctx, result);
+        await this.reply(ctx, this.filterReplyText(result));
         return;
       }
 
@@ -280,8 +280,8 @@ export class FeishuAdapter {
     }
   }
 
-  private async handleSessionCommand(ctx: FeishuMessageContext, command: string): Promise<boolean> {
-    const sessionKey = buildSessionKey(ctx);
+  private async handleSessionCommand(ctx: FeishuMessageContext, command: string, role?: string): Promise<boolean> {
+    const sessionKey = buildSessionKey(ctx, role);
 
     if (command === "new") {
       const result = handleNew(this.deps.agent, sessionKey);
@@ -324,7 +324,7 @@ export class FeishuAdapter {
         return;
       }
 
-      if (await this.handleSessionCommand(ctx, parsed.command)) return;
+      if (await this.handleSessionCommand(ctx, parsed.command, resolvedRole.role)) return;
 
       const callCtx = this.buildCommandContext(ctx, resolvedRole.role);
       const result = await this.deps.toolRegistry.handleCommand(
@@ -335,7 +335,7 @@ export class FeishuAdapter {
       );
       if (result !== null) {
         console.log(`[${ctx.logId}] command /${parsed.command} ${parsed.subcommand ?? ""} reply len=${result.length}`);
-        await this.reply(ctx, result);
+        await this.reply(ctx, this.filterReplyText(result));
         return;
       }
 
@@ -353,7 +353,7 @@ export class FeishuAdapter {
   }
 
   private async handleQuestion(ctx: FeishuMessageContext, question: string, resolvedRole: string): Promise<void> {
-    const sessionKey = buildSessionKey(ctx);
+    const sessionKey = buildSessionKey(ctx, resolvedRole);
 
     // Progress callback: send "thinking" on first tool call, debug info in debug mode
     let sentThinking = false;
@@ -382,8 +382,7 @@ export class FeishuAdapter {
       if (replyText !== response.text) {
         console.warn(`[${ctx.logId}] agent fallback reply returned to user: ${JSON.stringify(response.text)}`);
       }
-      const secretFiltered = filterSecrets(replyText, this.deps.secretPatterns);
-      const filtered = this.deps.toolRegistry.filterOutput(secretFiltered);
+      const filtered = this.filterReplyText(replyText);
       console.log(`[${ctx.logId}] agent reply len=${replyText.length} filtered=${filtered !== replyText}`);
       await this.reply(ctx, filtered);
     } catch (e: any) {
@@ -429,6 +428,11 @@ export class FeishuAdapter {
     } catch {
       // Already logged in reply(), swallow to prevent unhandled rejection
     }
+  }
+
+  private filterReplyText(text: string): string {
+    const secretFiltered = filterSecrets(text, this.deps.secretPatterns);
+    return this.deps.toolRegistry.filterOutput(secretFiltered);
   }
 
   private isAdmin(senderId: string): boolean {

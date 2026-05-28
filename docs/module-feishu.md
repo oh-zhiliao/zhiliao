@@ -55,6 +55,8 @@
 
 `chat_id` 显式绑定优先级高于默认角色。命中后会把 `role` 连同 `channel/chatType/chatId/userId/logId` 一起放入请求上下文，传给 Agent 和插件工具链。
 
+升级到角色权限模型后，数据库迁移不会自动创建 `group` / `p2p` 默认角色；未配置的会话会 fail closed，直到管理员显式执行 `/role assign ...` 或 `/role default ...`。
+
 ### 角色缺失时的行为
 
 - `/help` 放行
@@ -97,9 +99,11 @@
 
 | 场景 | Session Key 格式 |
 |------|------------------|
-| 私聊 | `feishu:p2p:{user_id}` |
-| 群聊主线程 | `feishu:{chat_id}:main` |
-| 话题群线程 | `feishu:{chat_id}:{thread_id}` |
+| 私聊 | `feishu:p2p:{user_id}:role:{role}` |
+| 群聊主线程 | `feishu:{chat_id}:main:role:{role}` |
+| 话题群线程 | `feishu:{chat_id}:{thread_id}:role:{role}` |
+
+`role` 是会话 key 的一部分，因此降权或切换角色后不会复用旧角色的会话历史。
 
 **Context 字段**: `chatId`, `chatType`, `messageId`, `threadId`, `senderId`, `logId`, `debugMode`
 

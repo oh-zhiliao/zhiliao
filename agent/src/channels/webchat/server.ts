@@ -53,7 +53,7 @@ export function createWebChatServer(
       res.status(401).json({ error: "Invalid password" });
       return;
     }
-    const token = jwt.sign({ sub: "webchat_user" }, config.jwtSecret, {
+    const token = jwt.sign({ sub: `webchat_user:${randomBytes(16).toString("hex")}` }, config.jwtSecret, {
       expiresIn: "7d",
       audience: "session",
     });
@@ -63,11 +63,12 @@ export function createWebChatServer(
   // Session cleanup endpoint
   app.delete("/api/sessions/:id", (req, res) => {
     const authHeader = req.headers.authorization;
-    if (!verifyToken(authHeader, config.jwtSecret)) {
+    const decoded = decodeAuthHeader(authHeader, config.jwtSecret);
+    if (!decoded) {
       res.status(401).json({ error: "Unauthorized" });
       return;
     }
-    agent.clearSession(`webchat:${req.params.id}`);
+    agent.clearSession(buildWebChatSessionKey(decoded.sub, req.params.id));
     res.json({ ok: true });
   });
 
@@ -265,28 +266,30 @@ export function createWebChatServer(
       }
 
       if (msg.type === "stop" && msg.sessionId) {
-        const ctrl = activeStreams.get(msg.sessionId);
+        const streamKey = buildWebChatSessionKey(decoded.sub, String(msg.sessionId));
+        const ctrl = activeStreams.get(streamKey);
         ctrl?.abort();
         return;
       }
 
       if (msg.type === "message" && msg.sessionId && msg.content) {
-        const sessionId = msg.sessionId;
+        const sessionId = String(msg.sessionId);
+        const sessionKey = buildWebChatSessionKey(decoded.sub, sessionId);
 
-        if (activeStreams.has(sessionId)) {
+        if (activeStreams.has(sessionKey)) {
           ws.send(JSON.stringify({ type: "error", sessionId, message: "Already processing" }));
           return;
         }
 
         const controller = new AbortController();
-        activeStreams.set(sessionId, controller);
-        channel.registerSocket(sessionId, ws);
+        activeStreams.set(sessionKey, controller);
+        channel.registerSocket(sessionKey, ws);
 
         const ctx: ChannelMessageContext = {
           channelName: "webchat",
-          userId: decoded.sub || "webchat_user",
-          sessionKey: `webchat:${sessionId}`,
-          extra: { sessionId },
+          userId: decoded.sub,
+          sessionKey,
+          extra: { sessionId, socketKey: sessionKey },
         };
 
         try {
@@ -298,12 +301,12 @@ export function createWebChatServer(
             question = text.replace(/^\/debug2?\s+/, "").trim();
             if (!question) {
               ws.send(JSON.stringify({ type: "message_complete", sessionId, content: "用法: /debug <你的问题>" }));
-              activeStreams.delete(sessionId);
-              channel.unregisterSocket(sessionId);
+              activeStreams.delete(sessionKey);
+              channel.unregisterSocket(sessionKey);
               return;
             }
             // Send session key info (webchat already shows tool calls via streaming)
-            ws.send(JSON.stringify({ type: "message_complete", sessionId, content: `[debug] session=webchat:${sessionId}` }));
+            ws.send(JSON.stringify({ type: "message_complete", sessionId, content: `[debug] session=${sessionKey}` }));
           }
 
           if (question.startsWith("/")) {
@@ -313,7 +316,7 @@ export function createWebChatServer(
             // Questions go through streaming path
             await agent.askStreaming(
               question,
-              `webchat:${sessionId}`,
+              sessionKey,
               {
                 onTextDelta: (delta) => {
                   if (ws.readyState === WebSocket.OPEN) {
@@ -353,8 +356,8 @@ export function createWebChatServer(
             ws.send(JSON.stringify({ type: "error", sessionId, message: `处理失败: ${e.message}` }));
           }
         } finally {
-          activeStreams.delete(sessionId);
-          channel.unregisterSocket(sessionId);
+          activeStreams.delete(sessionKey);
+          channel.unregisterSocket(sessionKey);
         }
         return;
       }
@@ -367,12 +370,12 @@ export function createWebChatServer(
     });
 
     ws.on("close", () => {
-      for (const [sessionId, ctrl] of activeStreams) {
-        const registered = channel.getSocket(sessionId);
+      for (const [sessionKey, ctrl] of activeStreams) {
+        const registered = channel.getSocket(sessionKey);
         if (registered === ws) {
           ctrl.abort();
-          activeStreams.delete(sessionId);
-          channel.unregisterSocket(sessionId);
+          activeStreams.delete(sessionKey);
+          channel.unregisterSocket(sessionKey);
         }
       }
     });
@@ -402,26 +405,29 @@ function maskUserId(id: string): string {
   return id;
 }
 
-function verifyToken(authHeader: string | undefined, secret: string): boolean {
-  if (!authHeader?.startsWith("Bearer ")) return false;
-  try {
-    jwt.verify(authHeader.slice(7), secret, { algorithms: ["HS256"], audience: "session" });
-    return true;
-  } catch {
-    return false;
-  }
+function decodeAuthHeader(authHeader: string | undefined, secret: string): { sub: string; [k: string]: unknown } | null {
+  if (!authHeader?.startsWith("Bearer ")) return null;
+  return decodeToken(authHeader.slice(7), secret);
 }
 
 function decodeToken(token: string | null, secret: string): { sub: string; [k: string]: unknown } | null {
   if (!token) return null;
   try {
-    return jwt.verify(token, secret, {
+    const decoded = jwt.verify(token, secret, {
       algorithms: ["HS256"],
       audience: "session",
     }) as { sub: string; [k: string]: unknown };
+    if (typeof decoded.sub !== "string" || decoded.sub.trim() === "") {
+      return null;
+    }
+    return decoded;
   } catch {
     return null;
   }
+}
+
+function buildWebChatSessionKey(userId: string, sessionId: string): string {
+  return `webchat:${encodeURIComponent(userId)}:${encodeURIComponent(sessionId)}`;
 }
 
 function oauthSuccessHtml(token: string): string {

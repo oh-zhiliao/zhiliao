@@ -257,7 +257,27 @@ describe("createWebChatServer HTTP endpoints", () => {
     expect(body.token).toBeDefined();
     // Verify the token is valid
     const decoded = jwt.verify(body.token, TEST_JWT_SECRET) as jwt.JwtPayload;
-    expect(decoded.sub).toBe("webchat_user");
+    expect(decoded.sub).toMatch(/^webchat_user:/);
+  });
+
+  it("POST /api/auth/login issues distinct subjects for separate password logins", async () => {
+    const login = async () => {
+      const res = await fetch(`${baseUrl}/api/auth/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: TEST_PASSWORD }),
+      });
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      return jwt.verify(body.token, TEST_JWT_SECRET) as jwt.JwtPayload;
+    };
+
+    const first = await login();
+    const second = await login();
+
+    expect(first.sub).toMatch(/^webchat_user:/);
+    expect(second.sub).toMatch(/^webchat_user:/);
+    expect(first.sub).not.toBe(second.sub);
   });
 
   it("POST /api/auth/login with wrong password returns 401", async () => {
@@ -280,7 +300,7 @@ describe("createWebChatServer HTTP endpoints", () => {
     expect(res.status).toBe(401);
   });
 
-  it("DELETE /api/sessions/:id with valid token clears session", async () => {
+  it("DELETE /api/sessions/:id with valid token clears only the authenticated user's session", async () => {
     const token = jwt.sign({ sub: "webchat_user" }, TEST_JWT_SECRET, { expiresIn: "1h", audience: "session" });
     const res = await fetch(`${baseUrl}/api/sessions/test-session`, {
       method: "DELETE",
@@ -289,7 +309,8 @@ describe("createWebChatServer HTTP endpoints", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.ok).toBe(true);
-    expect(mockAgent.clearSession).toHaveBeenCalledWith("webchat:test-session");
+    expect(mockAgent.clearSession).toHaveBeenCalledWith("webchat:webchat_user:test-session");
+    expect(mockAgent.clearSession).not.toHaveBeenCalledWith("webchat:test-session");
   });
 
   it("DELETE /api/sessions/:id without token returns 401", async () => {
@@ -305,6 +326,16 @@ describe("createWebChatServer HTTP endpoints", () => {
       headers: { Authorization: "Bearer invalid.token.here" },
     });
     expect(res.status).toBe(401);
+  });
+
+  it("DELETE /api/sessions/:id rejects session JWTs without a subject", async () => {
+    const token = jwt.sign({ purpose: "session" }, TEST_JWT_SECRET, { expiresIn: "1h", audience: "session" });
+    const res = await fetch(`${baseUrl}/api/sessions/test-session`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(res.status).toBe(401);
+    expect(mockAgent.clearSession).not.toHaveBeenCalled();
   });
 
   // P0 regression: a signed oauth_state JWT must NOT be usable as a session Bearer token.
@@ -483,6 +514,98 @@ describe("createWebChatServer WebSocket", () => {
     expect(messages.some(m => m.type === "text_delta")).toBe(true);
     expect(messages.some(m => m.type === "message_complete")).toBe(true);
     expect(mockAgent.askStreaming).toHaveBeenCalled();
+  });
+
+  it("scopes identical client session ids by authenticated user", async () => {
+    const { WebSocket: WS } = await import("ws");
+    const tokenA = jwt.sign({ sub: "user_a" }, TEST_JWT_SECRET, { expiresIn: "1h", audience: "session" });
+    const tokenB = jwt.sign({ sub: "user_b" }, TEST_JWT_SECRET, { expiresIn: "1h", audience: "session" });
+
+    async function sendOne(token: string) {
+      const ws = new WS(`${wsUrl}/ws?token=${token}`);
+      await new Promise<void>((resolve, reject) => {
+        ws.on("open", () => {
+          ws.send(JSON.stringify({
+            type: "message",
+            sessionId: "shared-local-session",
+            content: "hello",
+          }));
+        });
+        ws.on("message", (data) => {
+          const msg = JSON.parse(data.toString());
+          if (msg.type === "message_complete") {
+            ws.close();
+            resolve();
+          }
+        });
+        ws.on("error", (err) => reject(err));
+        setTimeout(() => {
+          ws.close();
+          reject(new Error("timeout waiting for scoped response"));
+        }, 3000);
+      });
+    }
+
+    await sendOne(tokenA);
+    await sendOne(tokenB);
+
+    const sessionKeys = mockAgent.askStreaming.mock.calls.map((call: any[]) => call[1]);
+    expect(sessionKeys).toContain("webchat:user_a:shared-local-session");
+    expect(sessionKeys).toContain("webchat:user_b:shared-local-session");
+    expect(new Set(sessionKeys).size).toBe(sessionKeys.length);
+  });
+
+  it("does not let a different user stop an active WebChat stream with the same client session id", async () => {
+    const { WebSocket: WS } = await import("ws");
+    const tokenA = jwt.sign({ sub: "user_a" }, TEST_JWT_SECRET, { expiresIn: "1h", audience: "session" });
+    const tokenB = jwt.sign({ sub: "user_b" }, TEST_JWT_SECRET, { expiresIn: "1h", audience: "session" });
+    let resolveStreaming: (() => void) | undefined;
+    let abortedByOtherUser = false;
+
+    mockAgent.askStreaming.mockImplementationOnce(async (_q: string, _s: string, _callbacks: any, signal: AbortSignal) => {
+      signal.addEventListener("abort", () => {
+        abortedByOtherUser = true;
+        resolveStreaming?.();
+      });
+      await new Promise<void>((resolve) => {
+        resolveStreaming = resolve;
+      });
+      return "done";
+    });
+
+    const wsA = new WS(`${wsUrl}/ws?token=${tokenA}`);
+    const wsB = new WS(`${wsUrl}/ws?token=${tokenB}`);
+
+    await new Promise<void>((resolve, reject) => {
+      let openCount = 0;
+      const onOpen = () => {
+        openCount++;
+        if (openCount === 2) resolve();
+      };
+      wsA.on("open", onOpen);
+      wsB.on("open", onOpen);
+      wsA.on("error", reject);
+      wsB.on("error", reject);
+      setTimeout(() => reject(new Error("timeout opening sockets")), 3000);
+    });
+
+    wsA.send(JSON.stringify({
+      type: "message",
+      sessionId: "shared-stop-session",
+      content: "long request",
+    }));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    wsB.send(JSON.stringify({
+      type: "stop",
+      sessionId: "shared-stop-session",
+    }));
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    expect(abortedByOtherUser).toBe(false);
+
+    resolveStreaming?.();
+    wsA.close();
+    wsB.close();
   });
 
   it("handles history request", async () => {

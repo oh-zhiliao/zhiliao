@@ -29,6 +29,36 @@ describe("Markdown", () => {
     expect(Markdown.render("hello")).toBe("<p>hello</p>");
   });
 
+  it("render sanitizes active HTML emitted by marked", () => {
+    const result = Markdown.render(
+      '<img src=x onerror="alert(1)"><script>alert(1)</script><a href="javascript:alert(1)">click</a><p data-ok="1">ok</p>'
+    );
+
+    expect(result).not.toContain("<script");
+    expect(result).not.toContain("onerror");
+    expect(result).not.toContain("javascript:");
+    expect(result).toContain("click");
+    expect(result).toContain("ok");
+  });
+
+  it("render removes SVG and MathML active content", () => {
+    const result = Markdown.render(
+      '<svg><script>alert(1)</script></svg><math><mtext><script>alert(2)</script></mtext></math>'
+    );
+
+    expect(result).not.toContain("<svg");
+    expect(result).not.toContain("<math");
+    expect(result).not.toContain("<script");
+  });
+
+  it("render removes dangerous URI schemes with embedded control characters", () => {
+    const result = Markdown.render('<a href="java\tscript:alert(1)">click</a>');
+
+    expect(result).toContain("click");
+    expect(result).not.toContain("href=");
+    expect(result).not.toContain("script:alert");
+  });
+
   it("render falls back to escaped HTML on marked error", () => {
     (globalThis as any).marked.parse = () => {
       throw new Error("boom");

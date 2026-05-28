@@ -83,7 +83,7 @@ describe("compressHistory", () => {
     expect(body.messages[0].content).toContain("Summarize this conversation");
   });
 
-  it("handles messages with tool_use and tool_result content blocks", async () => {
+  it("redacts tool_result content before sending history to compressor LLM", async () => {
     const mockResponse = {
       ok: true,
       json: vi.fn().mockResolvedValue({
@@ -98,13 +98,13 @@ describe("compressHistory", () => {
         role: "assistant",
         content: [
           { type: "text", text: "Let me read that file." },
-          { type: "tool_use", name: "git_file_read", input: { repo: "proj", path: "config.ts" } },
+          { type: "tool_use", id: "use_1", name: "git_file_read", input: { repo: "proj", path: "config.ts", token: "SECRET_TOKEN=abc123" } },
         ],
       },
       {
         role: "user",
         content: [
-          { type: "tool_result", tool_use_id: "call_1", content: "export const config = {}" },
+          { type: "tool_result", tool_use_id: "call_1", content: "SECRET_TOKEN=abc123\nexport const config = {}" },
         ],
       },
     ];
@@ -112,7 +112,7 @@ describe("compressHistory", () => {
     const result = await compressHistory(config, messages);
     expect(result).toBe("Summary of tool interactions.");
 
-    // Verify the prompt includes all message types
+    // Verify the prompt keeps useful metadata but not raw tool output
     const [, options] = (globalThis.fetch as any).mock.calls[0];
     const body = JSON.parse(options.body);
     const prompt = body.messages[0].content;
@@ -121,10 +121,15 @@ describe("compressHistory", () => {
     expect(prompt).toContain("user: Read the config file");
     // Text block from assistant
     expect(prompt).toContain("assistant: Let me read that file.");
-    // Tool use block
-    expect(prompt).toContain("[tool:git_file_read(");
-    // Tool result block
-    expect(prompt).toContain("tool_result: export const config = {}");
+    // Tool use block keeps metadata but not raw arguments
+    expect(prompt).toContain("[tool:git_file_read");
+    expect(prompt).toContain("use_1");
+    expect(prompt).not.toContain("config.ts");
+    // Tool result block is represented without raw content
+    expect(prompt).toContain("tool_result: [redacted");
+    expect(prompt).toContain("call_1");
+    expect(prompt).not.toContain("SECRET_TOKEN");
+    expect(prompt).not.toContain("export const config");
   });
 
   it("throws error on non-200 response", async () => {

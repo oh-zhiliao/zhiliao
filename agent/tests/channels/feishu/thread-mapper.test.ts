@@ -69,4 +69,15 @@ describe("parseSessionKey", () => {
       isDM: true,
     });
   });
+
+  it("parses role-scoped keys without corrupting the thread id", () => {
+    const parsed = parseSessionKey("feishu:oc_abc:omt_thread1:role:prod_readonly");
+    expect(parsed).toEqual({
+      channel: "feishu",
+      chatId: "oc_abc",
+      threadOrUserId: "omt_thread1",
+      isDM: false,
+      role: "prod_readonly",
+    });
+  });
 });

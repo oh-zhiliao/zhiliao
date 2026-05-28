@@ -1,10 +1,11 @@
 import hashlib
 import logging
+import secrets
 import time
 from contextlib import asynccontextmanager
-from typing import Optional
+from typing import Annotated, Optional
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel
 
 from config import load_config
@@ -27,6 +28,7 @@ class AppState:
     indexer: Optional[CommitIndexer] = None
     search: Optional[HybridSearch] = None
     decay: Optional[DecayManager] = None
+    auth_token: Optional[str] = None
 
 
 state = AppState()
@@ -37,12 +39,21 @@ def _require_initialized():
         raise HTTPException(status_code=503, detail="Service not initialized")
 
 
+def _require_auth(authorization: Annotated[str | None, Header()] = None):
+    if not state.auth_token:
+        raise HTTPException(status_code=503, detail="Auth not initialized")
+    scheme, _, token = (authorization or "").partition(" ")
+    if scheme.lower() != "bearer" or not token or not secrets.compare_digest(token, state.auth_token):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     try:
         config = load_config()
     except ValueError:
         # Allow running without config for tests
+        state.auth_token = None
         yield
         return
 
@@ -60,10 +71,12 @@ async def lifespan(app: FastAPI):
     state.indexer = CommitIndexer(store=state.store, llm=state.llm)
     state.search = HybridSearch(store=state.store, llm=state.llm)
     state.decay = DecayManager(store=state.store, decay_after_days=config.decay_after_days)
+    state.auth_token = config.auth_token
 
     logger.info("Memo service initialized (data_dir=%s)", config.data_dir)
     yield
     state.store.close()
+    state.auth_token = None
 
 
 app = FastAPI(title="Zhiliao Memo Service", lifespan=lifespan)
@@ -148,7 +161,7 @@ async def health():
 
 
 @app.post("/index/commits", response_model=IndexCommitsResponse)
-async def index_commits(req: IndexCommitsRequest):
+async def index_commits(req: IndexCommitsRequest, _auth: None = Depends(_require_auth)):
     _require_initialized()
     commits = [c.model_dump() for c in req.commits]
     count = await state.indexer.index_commits(req.repo_name, commits)
@@ -156,7 +169,7 @@ async def index_commits(req: IndexCommitsRequest):
 
 
 @app.post("/index/scan", response_model=IndexScanResponse)
-async def index_scan(req: IndexScanRequest):
+async def index_scan(req: IndexScanRequest, _auth: None = Depends(_require_auth)):
     # Scan indexing is handled by the Deep Scanner on the TS side;
     # the scan endpoint receives file summaries to index.
     # For now, acknowledge receipt. Full scan indexing will be added
@@ -165,7 +178,7 @@ async def index_scan(req: IndexScanRequest):
 
 
 @app.post("/index/decay", response_model=IndexDecayResponse)
-async def index_decay(req: IndexDecayRequest):
+async def index_decay(req: IndexDecayRequest, _auth: None = Depends(_require_auth)):
     _require_initialized()
     result = state.decay.run_decay(req.repo_name, req.existing_files)
     return IndexDecayResponse(
@@ -175,7 +188,7 @@ async def index_decay(req: IndexDecayRequest):
 
 
 @app.post("/save", response_model=SaveResponse)
-async def save(req: SaveRequest):
+async def save(req: SaveRequest, _auth: None = Depends(_require_auth)):
     _require_initialized()
 
     # Distill content using cheap LLM
@@ -200,7 +213,7 @@ async def save(req: SaveRequest):
 
 
 @app.post("/search", response_model=SearchResponse)
-async def search(req: SearchRequest):
+async def search(req: SearchRequest, _auth: None = Depends(_require_auth)):
     _require_initialized()
     results = await state.search.search(
         req.query, limit=req.limit, repo_name=req.repo_name

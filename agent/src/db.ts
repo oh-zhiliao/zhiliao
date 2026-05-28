@@ -29,8 +29,6 @@ export class ZhiliaoDB {
       .prepare("SELECT value FROM _meta WHERE key = 'schema_version'")
       .get() as { value: string } | undefined;
     const currentVersion = versionRow ? parseInt(versionRow.value, 10) : 0;
-    const wasUpgrade = currentVersion > 0;
-
     const migrations: Array<() => void> = [
       // v1: initial schema
       () => {
@@ -96,17 +94,6 @@ export class ZhiliaoDB {
           );
         `);
 
-        if (wasUpgrade) {
-          const now = Date.now();
-          this.db.prepare(
-            `INSERT OR IGNORE INTO role_defaults (chat_type, role, updated_at, updated_by)
-             VALUES (?, 'default', ?, 'migration')`
-          ).run("group", now);
-          this.db.prepare(
-            `INSERT OR IGNORE INTO role_defaults (chat_type, role, updated_at, updated_by)
-             VALUES (?, 'default', ?, 'migration')`
-          ).run("p2p", now);
-        }
       },
     ];
 

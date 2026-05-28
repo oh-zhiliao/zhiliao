@@ -138,6 +138,29 @@ describe("ToolRegistry", () => {
     expect(p.getSystemPromptAddendum).toHaveBeenCalledWith(requestContext);
   });
 
+  it("does not execute tools hidden from the current request context", async () => {
+    const plugin = makePlugin("scoped", ["safe", "admin"]);
+    plugin.getToolDefinitions = vi.fn((ctx?: RequestContext) => [
+      { name: "safe", description: "safe", input_schema: {} },
+      ...(ctx?.role === "admin" ? [{ name: "admin", description: "admin", input_schema: {} }] : []),
+    ]);
+    registry.register(plugin);
+
+    const readonlyCtx: RequestContext = {
+      channel: "feishu",
+      chatType: "group",
+      chatId: "oc_group_1",
+      userId: "u1",
+      role: "readonly",
+      logId: "log1",
+    };
+
+    const result = await registry.executeTool("scoped.admin", {}, readonlyCtx);
+
+    expect(result).toContain("not available");
+    expect(plugin.executeTool).not.toHaveBeenCalled();
+  });
+
   it("merges secret patterns from all plugins", () => {
     const p1 = makePlugin("cls-query", ["search"]);
     p1.getSecretPatterns = () => [/TENCENTCLOUD_SECRET/g];

@@ -3,6 +3,11 @@ import pytest
 from config import load_config
 
 
+@pytest.fixture(autouse=True)
+def memo_auth_token(monkeypatch):
+    monkeypatch.setenv("MEMO_AUTH_TOKEN", "test-memo-token")
+
+
 def test_load_config_from_env(monkeypatch):
     monkeypatch.setenv("MEMO_LLM_BASE_URL", "https://api.deepseek.com/v1")
     monkeypatch.setenv("MEMO_LLM_MODEL", "deepseek-chat")
@@ -18,6 +23,7 @@ def test_load_config_from_env(monkeypatch):
     assert config.embedding_base_url == "https://api.deepseek.com/v1"
     assert config.embedding_model == "deepseek-embedding"
     assert config.data_dir == "/tmp/memo-test"
+    assert config.auth_token == "test-memo-token"
 
 
 def test_load_config_defaults(monkeypatch):
@@ -36,6 +42,14 @@ def test_load_config_defaults(monkeypatch):
 def test_load_config_missing_api_key(monkeypatch):
     monkeypatch.delenv("MEMO_LLM_API_KEY", raising=False)
     with pytest.raises(ValueError, match="MEMO_LLM_API_KEY"):
+        load_config()
+
+
+def test_load_config_missing_auth_token(monkeypatch):
+    monkeypatch.setenv("MEMO_LLM_API_KEY", "sk-test")
+    monkeypatch.delenv("MEMO_AUTH_TOKEN", raising=False)
+
+    with pytest.raises(ValueError, match="MEMO_AUTH_TOKEN"):
         load_config()
 
 

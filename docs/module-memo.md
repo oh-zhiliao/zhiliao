@@ -28,6 +28,7 @@ LLMClient  KnowledgeStore
 | 环境变量 | 默认值 | 说明 |
 |----------|--------|------|
 | `MEMO_LLM_API_KEY` | (必填) | LLM API 密钥 |
+| `MEMO_AUTH_TOKEN` | (必填) | Memo HTTP API Bearer 鉴权令牌 |
 | `MEMO_LLM_BASE_URL` | deepseek | LLM 服务地址 |
 | `MEMO_LLM_MODEL` | deepseek-chat | 摘要模型 |
 | `MEMO_EMBEDDING_BASE_URL` | 同 LLM | Embedding 服务地址 |
@@ -38,6 +39,8 @@ LLMClient  KnowledgeStore
 | `MEMO_DECAY_AFTER_DAYS` | 30 | 衰减天数 |
 
 ### llm_client.py
+
+除 `GET /health` 外，所有 Memo HTTP API 都要求 `Authorization: Bearer <MEMO_AUTH_TOKEN>`。
 
 OpenAI 兼容 API 客户端，支持摘要生成和 embedding。
 

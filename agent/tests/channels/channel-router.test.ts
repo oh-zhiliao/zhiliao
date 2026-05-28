@@ -87,6 +87,19 @@ describe("ChannelRouter", () => {
     expect(channel.sendReply).toHaveBeenCalledWith(ctx, "plugin response");
   });
 
+  it("applies secret and plugin output filtering to plugin command replies", async () => {
+    mockRegistry.handleCommand.mockResolvedValue("contains secret data");
+    mockRegistry.filterOutput.mockImplementation((text: string) => text.replace("secret", "[REDACTED]"));
+    const channel = createMockChannel();
+    const ctx = createMockContext();
+
+    router = new ChannelRouter(mockAgent, mockRegistry, [/data/g]);
+    await router.handleMessage(channel, ctx, "/git-repos list");
+
+    const replyText = (channel.sendReply as any).mock.calls[0][1];
+    expect(replyText).toBe("contains [REDACTED] [REDACTED]");
+  });
+
   it("reports unknown commands", async () => {
     const channel = createMockChannel();
     const ctx = createMockContext();

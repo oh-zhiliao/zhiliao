@@ -122,6 +122,10 @@ llm:
     provider: "openai_compatible"
     base_url: "http://127.0.0.1:11434/v1"
     model: "qwen3-embedding:0.6b"
+memo:
+  enabled: true
+  url: "http://127.0.0.1:8090"
+  auth_token: "replace-with-random-token"
 webchat:                          # 可选
   enabled: true
   port: 8080

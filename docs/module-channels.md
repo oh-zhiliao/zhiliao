@@ -190,7 +190,7 @@ WebSocket message
 webchat:
   enabled: true
   port: 8080
-  password: "changeme"      # 首次运行自动哈希为 bcrypt
+  password: "replace-with-strong-password" # 首次运行自动哈希为 bcrypt
   jwt_secret: "auto"        # "auto" = 每次启动随机生成，持久化到 data/webchat-jwt-secret
 ```
 

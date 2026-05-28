@@ -119,6 +119,7 @@ llm:
 memo:
   enabled: true
   url: "http://127.0.0.1:8090"
+  auth_token: "replace-with-random-token"
 ```
 
 **plugins/git-repos/config.yaml**:

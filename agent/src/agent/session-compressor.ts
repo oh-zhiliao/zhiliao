@@ -29,17 +29,19 @@ export async function compressHistory(
 ): Promise<string> {
   const textParts: string[] = [];
   for (const msg of messages) {
-    if (typeof msg.content === "string") {
+    if (msg.role === "tool") {
+      const toolMsg = msg as { tool_call_id?: unknown };
+      textParts.push(formatRedactedToolResult(toolMsg.tool_call_id));
+    } else if (typeof msg.content === "string") {
       textParts.push(`${msg.role}: ${msg.content}`);
     } else if (Array.isArray(msg.content)) {
       for (const block of msg.content) {
         if (block.type === "text") {
           textParts.push(`${msg.role}: ${block.text}`);
         } else if (block.type === "tool_use") {
-          textParts.push(`${msg.role}: [tool:${block.name}(${JSON.stringify(block.input).slice(0, 100)})]`);
+          textParts.push(formatRedactedToolUse(block.name, block.id));
         } else if (block.type === "tool_result") {
-          const content = typeof block.content === "string" ? block.content : JSON.stringify(block.content);
-          textParts.push(`tool_result: ${content.slice(0, 300)}`);
+          textParts.push(formatRedactedToolResult(block.tool_use_id));
         }
       }
     }
@@ -90,4 +92,15 @@ export async function compressHistory(
 
   const data = await resp.json() as any;
   return data.choices?.[0]?.message?.content?.trim() ?? "(摘要生成失败)";
+}
+
+function formatRedactedToolResult(id: unknown): string {
+  const suffix = typeof id === "string" && id ? ` id=${id}` : "";
+  return `tool_result: [redacted${suffix}]`;
+}
+
+function formatRedactedToolUse(name: unknown, id: unknown): string {
+  const toolName = typeof name === "string" && name ? name : "unknown";
+  const suffix = typeof id === "string" && id ? ` id=${id}` : "";
+  return `assistant: [tool:${toolName}${suffix} input redacted]`;
 }

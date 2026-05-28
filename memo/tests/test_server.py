@@ -13,6 +13,9 @@ from search import HybridSearch
 from server import app, state
 from store import KnowledgeEntry, KnowledgeStore
 
+AUTH_TOKEN = "test-memo-token"
+AUTH_HEADERS = {"Authorization": f"Bearer {AUTH_TOKEN}"}
+
 
 @pytest.fixture
 def setup_state():
@@ -29,9 +32,11 @@ def setup_state():
         state.indexer = CommitIndexer(store=store, llm=mock_llm)
         state.search = HybridSearch(store=store, llm=mock_llm)
         state.decay = DecayManager(store=store, decay_after_days=30)
+        state.auth_token = AUTH_TOKEN
 
         yield store
         store.close()
+        state.auth_token = None
 
 
 @pytest.fixture
@@ -53,6 +58,7 @@ async def test_health(client):
 async def test_index_commits(client, setup_state):
     resp = await client.post(
         "/index/commits",
+        headers=AUTH_HEADERS,
         json={
             "repo_name": "test-repo",
             "commits": [
@@ -85,6 +91,7 @@ async def test_index_decay(client, setup_state):
 
     resp = await client.post(
         "/index/decay",
+        headers=AUTH_HEADERS,
         json={
             "repo_name": "test-repo",
             "existing_files": [],  # src/gone.ts is missing
@@ -108,6 +115,7 @@ async def test_search(client, setup_state):
 
     resp = await client.post(
         "/search",
+        headers=AUTH_HEADERS,
         json={"query": "JWT authentication", "limit": 5},
     )
     assert resp.status_code == 200
@@ -119,6 +127,7 @@ async def test_search(client, setup_state):
 async def test_index_scan(client):
     resp = await client.post(
         "/index/scan",
+        headers=AUTH_HEADERS,
         json={"repo_name": "test-repo", "repo_path": "/tmp/fake"},
     )
     assert resp.status_code == 200
@@ -136,18 +145,37 @@ async def test_returns_503_when_not_initialized():
     try:
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as c:
-            resp = await c.post("/index/commits", json={"repo_name": "r", "commits": []})
+            resp = await c.post("/index/commits", headers=AUTH_HEADERS, json={"repo_name": "r", "commits": []})
             assert resp.status_code == 503
-            resp = await c.post("/search", json={"query": "test"})
+            resp = await c.post("/search", headers=AUTH_HEADERS, json={"query": "test"})
             assert resp.status_code == 503
     finally:
         state.indexer, state.decay, state.search = saved
 
 
 @pytest.mark.asyncio
+async def test_protected_endpoints_require_bearer_token(client):
+    protected_requests = [
+        ("post", "/index/commits", {"repo_name": "r", "commits": []}),
+        ("post", "/index/scan", {"repo_name": "r", "repo_path": "/tmp/fake"}),
+        ("post", "/index/decay", {"repo_name": "r", "existing_files": []}),
+        ("post", "/save", {"repo_name": "r", "source": "chat", "content": "fact", "summary": "summary"}),
+        ("post", "/search", {"query": "fact"}),
+    ]
+
+    for method, path, payload in protected_requests:
+        resp = await getattr(client, method)(path, json=payload)
+        assert resp.status_code == 401, path
+
+    resp = await client.post("/search", headers={"Authorization": "Bearer wrong-token"}, json={"query": "fact"})
+    assert resp.status_code == 401
+
+
+@pytest.mark.asyncio
 async def test_save(client, setup_state):
     resp = await client.post(
         "/save",
+        headers=AUTH_HEADERS,
         json={
             "repo_name": "test-repo",
             "source": "chat:user123",
@@ -192,6 +220,7 @@ async def test_search_with_repo_name(client, setup_state):
     # Search with repo_name filter — should only return repo-a entry
     resp = await client.post(
         "/search",
+        headers=AUTH_HEADERS,
         json={"query": "payments", "repo_name": "repo-a", "limit": 10},
     )
     assert resp.status_code == 200
@@ -205,6 +234,7 @@ async def test_search_with_repo_name(client, setup_state):
 async def test_index_commits_empty(client):
     resp = await client.post(
         "/index/commits",
+        headers=AUTH_HEADERS,
         json={"repo_name": "test-repo", "commits": []},
     )
     assert resp.status_code == 200

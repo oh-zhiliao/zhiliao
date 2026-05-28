@@ -24,10 +24,12 @@ export class MemoToolsPlugin implements ToolPlugin {
   name = "memo-tools";
   private memoUrl: string;
   private dataDir: string;
+  private authToken: string;
 
-  constructor(memoUrl: string, dataDir: string) {
+  constructor(memoUrl: string, dataDir: string, authToken = "") {
     this.memoUrl = memoUrl;
     this.dataDir = dataDir;
+    this.authToken = authToken;
   }
 
   async init(): Promise<void> {
@@ -104,7 +106,7 @@ export class MemoToolsPlugin implements ToolPlugin {
     try {
       const resp = await fetch(`${this.memoUrl}/search`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: this.jsonHeaders(),
         body: JSON.stringify({ query, limit: 5 }),
         signal: controller.signal,
       });
@@ -134,7 +136,7 @@ export class MemoToolsPlugin implements ToolPlugin {
     try {
       const resp = await fetch(`${this.memoUrl}/save`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: this.jsonHeaders(),
         body: JSON.stringify({ repo_name: repoName, source: "chat", summary, content }),
         signal: controller.signal,
       });
@@ -156,5 +158,12 @@ export class MemoToolsPlugin implements ToolPlugin {
     } catch {
       return "No project memory found. The knowledge base will be populated as the system tracks changes.";
     }
+  }
+
+  private jsonHeaders(): Record<string, string> {
+    return {
+      "Content-Type": "application/json",
+      ...(this.authToken ? { Authorization: `Bearer ${this.authToken}` } : {}),
+    };
   }
 }

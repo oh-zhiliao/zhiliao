@@ -81,8 +81,12 @@ async function main() {
 
   // Register builtin memo-tools (unless explicitly disabled)
   if (config.memo?.enabled !== false) {
+    const memoAuthToken = config.memo?.auth_token || process.env.MEMO_AUTH_TOKEN || "";
+    if (!memoAuthToken) {
+      throw new Error("memo.auth_token or MEMO_AUTH_TOKEN is required when memo is enabled");
+    }
     const memoDataDir = config.memo?.data_dir || join(dataDir, "memo");
-    const memoPlugin = new MemoToolsPlugin(memoUrl, memoDataDir);
+    const memoPlugin = new MemoToolsPlugin(memoUrl, memoDataDir, memoAuthToken);
     toolRegistry.register(memoPlugin);
   }
 
@@ -149,7 +153,10 @@ async function main() {
   // Optional WebChat server
   let webchatServer: { start: () => void; stop: () => void } | null = null;
   if (config.webchat?.enabled) {
-    const rawPassword = config.webchat.password ?? "changeme";
+    const rawPassword = config.webchat.password;
+    if (!rawPassword) {
+      throw new Error("webchat.password is required when webchat is enabled");
+    }
     const passwordHash = rawPassword.startsWith("$2") ? rawPassword : hashSync(rawPassword, 10);
     const jwtSecret = (!config.webchat.jwt_secret || config.webchat.jwt_secret === "auto")
       ? (() => {

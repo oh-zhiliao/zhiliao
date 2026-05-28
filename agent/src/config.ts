@@ -28,6 +28,7 @@ export interface ZhiliaoConfig {
     enabled?: boolean;       // default true
     url?: string;            // default http://localhost:8090
     data_dir?: string;       // default <dataDir>/memo
+    auth_token?: string;     // shared bearer token for memo HTTP API
   };
   admins?: string[];
   webchat?: {
@@ -73,6 +74,19 @@ function validateConfig(config: unknown): asserts config is ZhiliaoConfig {
   if (maxToolIterations !== undefined) {
     if (!Number.isInteger(maxToolIterations) || maxToolIterations <= 0) {
       throw new Error("Invalid config: llm.agent.max_tool_iterations must be a positive integer");
+    }
+  }
+
+  if (c?.webchat?.enabled === true) {
+    const password = c.webchat.password;
+    const isBcryptHash = typeof password === "string" && password.startsWith("$2");
+    if (
+      typeof password !== "string" ||
+      password.trim() === "" ||
+      password === "changeme" ||
+      (!isBcryptHash && password.length < 12)
+    ) {
+      throw new Error("Invalid config: webchat.password must be explicitly set to a non-default value of at least 12 characters when webchat is enabled");
     }
   }
 }

@@ -31,10 +31,11 @@ llm:
 memo:
   enabled: true
   url: "http://127.0.0.1:8090"              # memo service URL
+  auth_token: "replace-with-random-token"    # shared bearer token for agent ↔ memo
 
 # WebChat — browser-based chat UI (optional)
 # webchat:
 #   enabled: true
 #   port: 8080
-#   password: "changeme"    # bcrypt-hashed on first startup
+#   password: "replace-with-strong-password" # bcrypt-hashed on startup if plaintext
 #   jwt_secret: "auto"      # auto-generated if "auto"
