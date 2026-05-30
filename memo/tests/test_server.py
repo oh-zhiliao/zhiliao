@@ -124,6 +124,35 @@ async def test_search(client, setup_state):
 
 
 @pytest.mark.asyncio
+async def test_search_filters_by_role(client, setup_state):
+    setup_state.upsert(KnowledgeEntry(
+        id="default-auth", repo_name="proj", source_file="chat:default",
+        content="Authentication handler for default role",
+        summary="Default auth",
+        embedding=np.ones(16, dtype=np.float32),
+        entry_type="qa",
+        role="default",
+    ))
+    setup_state.upsert(KnowledgeEntry(
+        id="complaint-auth", repo_name="proj", source_file="chat:complaint",
+        content="Authentication handler for complaint role",
+        summary="Complaint auth",
+        embedding=np.ones(16, dtype=np.float32),
+        entry_type="qa",
+        role="complaint",
+    ))
+
+    resp = await client.post(
+        "/search",
+        headers=AUTH_HEADERS,
+        json={"query": "Authentication handler", "role": "complaint", "limit": 5},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert [item["id"] for item in data["results"]] == ["complaint-auth"]
+
+
+@pytest.mark.asyncio
 async def test_index_scan(client):
     resp = await client.post(
         "/index/scan",
@@ -195,8 +224,30 @@ async def test_save(client, setup_state):
     assert entry.repo_name == "test-repo"
     assert entry.source_file == "chat:user123"
     assert entry.summary == "auth fact"
+    assert entry.role == "default"
     # Content should be the distilled text from LLM (mock returns "Test summary")
     assert entry.content == "Test summary"
+
+
+@pytest.mark.asyncio
+async def test_save_persists_explicit_role(client, setup_state):
+    resp = await client.post(
+        "/save",
+        headers=AUTH_HEADERS,
+        json={
+            "repo_name": "test-repo",
+            "source": "chat:user123",
+            "content": "some complaint-specific fact",
+            "summary": "complaint fact",
+            "role": "complaint",
+        },
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+
+    entry = setup_state.get(data["id"])
+    assert entry is not None
+    assert entry.role == "complaint"
 
 
 @pytest.mark.asyncio

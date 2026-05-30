@@ -218,6 +218,7 @@ export class AgentInvoker {
     this.trimHistory(entry);
 
     const toolDefs = this.tools?.getToolDefinitions(requestContext) ?? [];
+    const visibleToolNames = new Set(toolDefs.map((def) => def.name));
 
     const addendum = this.tools?.getSystemPromptAddendum(requestContext) ?? "";
     const tz = this.config.timezone;
@@ -232,7 +233,7 @@ export class AgentInvoker {
 
     // Auto-inject memory context so the LLM always has relevant knowledge
     let memoryContext = "";
-    if (this.tools?.hasTool("memo-tools.get_memory")) {
+    if (visibleToolNames.has("memo-tools.get_memory")) {
       try {
         // Session start: inject project overview
         if (entry.history.length === 1) {
@@ -247,7 +248,7 @@ export class AgentInvoker {
           }
         }
         // Every message: search memory for relevant context
-        if (this.tools.hasTool("memo-tools.memory_search")) {
+        if (visibleToolNames.has("memo-tools.memory_search")) {
           const searchResult = requestContext === undefined
             ? await this.tools.executeTool("memo-tools.memory_search", { query: question })
             : await this.tools.executeTool("memo-tools.memory_search", { query: question }, requestContext);
@@ -374,6 +375,7 @@ export class AgentInvoker {
     this.trimHistory(entry);
 
     const toolDefs = this.tools?.getToolDefinitions(requestContext) ?? [];
+    const visibleToolNames = new Set(toolDefs.map((def) => def.name));
 
     const addendum = this.tools?.getSystemPromptAddendum(requestContext) ?? "";
     const tz = this.config.timezone;
@@ -388,7 +390,7 @@ export class AgentInvoker {
 
     // Auto-inject memory context so the LLM always has relevant knowledge
     let memoryContext = "";
-    if (this.tools?.hasTool("memo-tools.get_memory")) {
+    if (visibleToolNames.has("memo-tools.get_memory")) {
       try {
         if (entry.history.length === 1) {
           const memResult = requestContext === undefined
@@ -398,7 +400,7 @@ export class AgentInvoker {
             memoryContext += `\n\n## Project Memory\n${memResult}`;
           }
         }
-        if (this.tools.hasTool("memo-tools.memory_search")) {
+        if (visibleToolNames.has("memo-tools.memory_search")) {
           const searchResult = requestContext === undefined
             ? await this.tools.executeTool("memo-tools.memory_search", { query: question })
             : await this.tools.executeTool("memo-tools.memory_search", { query: question }, requestContext);

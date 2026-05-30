@@ -43,7 +43,7 @@ export class MemoToolsPlugin implements ToolPlugin {
     }
   }
 
-  getToolDefinitions(): ToolDefinition[] {
+  getToolDefinitions(_context?: RequestContext): ToolDefinition[] {
     return [
       {
         name: "memory_search",
@@ -87,11 +87,11 @@ export class MemoToolsPlugin implements ToolPlugin {
     return "";
   }
 
-  async executeTool(name: string, input: Record<string, any>, _context?: RequestContext): Promise<string> {
+  async executeTool(name: string, input: Record<string, any>, context?: RequestContext): Promise<string> {
     try {
       switch (name) {
-        case "memory_search": return await this.memorySearch(input.query);
-        case "memory_save": return await this.memorySave(input.repo_name, input.summary, input.content);
+        case "memory_search": return await this.memorySearch(input.query, context);
+        case "memory_save": return await this.memorySave(input.repo_name, input.summary, input.content, context);
         case "get_memory": return this.getMemory();
         default: return `Unknown tool: ${name}`;
       }
@@ -100,14 +100,14 @@ export class MemoToolsPlugin implements ToolPlugin {
     }
   }
 
-  private async memorySearch(query: string): Promise<string> {
+  private async memorySearch(query: string, context?: RequestContext): Promise<string> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT);
     try {
       const resp = await fetch(`${this.memoUrl}/search`, {
         method: "POST",
         headers: this.jsonHeaders(),
-        body: JSON.stringify({ query, limit: 5 }),
+        body: JSON.stringify({ query, limit: 5, role: this.normalizeRole(context?.role) }),
         signal: controller.signal,
       });
       if (!resp.ok) return `Memory search failed: ${resp.status}`;
@@ -127,7 +127,12 @@ export class MemoToolsPlugin implements ToolPlugin {
     }
   }
 
-  private async memorySave(repoName: string, summary: string, content: string): Promise<string> {
+  private async memorySave(
+    repoName: string,
+    summary: string,
+    content: string,
+    context?: RequestContext,
+  ): Promise<string> {
     if (content.length > 500) {
       content = content.slice(0, 500);
     }
@@ -137,7 +142,13 @@ export class MemoToolsPlugin implements ToolPlugin {
       const resp = await fetch(`${this.memoUrl}/save`, {
         method: "POST",
         headers: this.jsonHeaders(),
-        body: JSON.stringify({ repo_name: repoName, source: "chat", summary, content }),
+        body: JSON.stringify({
+          repo_name: repoName,
+          source: "chat",
+          summary,
+          content,
+          role: this.normalizeRole(context?.role),
+        }),
         signal: controller.signal,
       });
       if (!resp.ok) return `Save failed: ${resp.status}`;
@@ -165,5 +176,10 @@ export class MemoToolsPlugin implements ToolPlugin {
       "Content-Type": "application/json",
       ...(this.authToken ? { Authorization: `Bearer ${this.authToken}` } : {}),
     };
+  }
+
+  private normalizeRole(role?: string): string {
+    const normalized = role?.trim();
+    return normalized || "default";
   }
 }

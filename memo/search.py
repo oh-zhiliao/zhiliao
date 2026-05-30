@@ -9,16 +9,26 @@ class HybridSearch:
         self.llm = llm
 
     async def search(
-        self, query: str, limit: int = 10, repo_name: str = None
+        self, query: str, limit: int = 10, repo_name: str = None, role: str = "default"
     ) -> list[dict]:
         if not query.strip():
             return []
 
         # Run BM25 and vector search in parallel-ish (both fast locally)
-        bm25_results = self.store.fts_search(query, limit=limit * 2, repo_name=repo_name)
+        bm25_results = self.store.fts_search(
+            query,
+            limit=limit * 2,
+            repo_name=repo_name,
+            role=role,
+        )
 
         query_vec = await self.llm.embed(query)
-        vec_results = self.store.vector_search(query_vec, limit=limit * 2, repo_name=repo_name)
+        vec_results = self.store.vector_search(
+            query_vec,
+            limit=limit * 2,
+            repo_name=repo_name,
+            role=role,
+        )
 
         # Merge with reciprocal rank fusion (RRF)
         scores: dict[str, float] = {}

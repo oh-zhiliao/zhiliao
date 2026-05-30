@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { ToolRegistry } from "../../src/agent/tool-registry.js";
 import type { RequestContext } from "../../src/agent/request-context.js";
 import type { ToolPlugin, PluginCommandHandler, PluginContext, CommandCallContext } from "../../src/agent/tool-plugin.js";
+import { MemoToolsPlugin } from "../../src/builtin/memo-tools.js";
 
 function makePlugin(name: string, tools: string[], cheapTools: string[] = []): ToolPlugin {
   return {
@@ -186,6 +187,36 @@ describe("ToolRegistry", () => {
   it("throws on duplicate plugin name", () => {
     registry.register(makePlugin("cls-query", ["search"]));
     expect(() => registry.register(makePlugin("cls-query", ["other"]))).toThrow("already registered");
+  });
+
+  it("keeps builtin memo tools visible in scoped role contexts", () => {
+    const memoPlugin = new MemoToolsPlugin("http://localhost:8090", "/tmp/memo-test");
+    registry.register(memoPlugin);
+
+    const complaintCtx: RequestContext = {
+      channel: "feishu",
+      chatType: "group",
+      chatId: "oc_group_1",
+      userId: "u1",
+      role: "complaint",
+      logId: "log1",
+    };
+
+    const defaultCtx: RequestContext = {
+      ...complaintCtx,
+      role: "default",
+    };
+
+    expect(registry.getToolDefinitions(complaintCtx).map((def) => def.name)).toEqual([
+      "memo-tools.memory_search",
+      "memo-tools.memory_save",
+      "memo-tools.get_memory",
+    ]);
+    expect(registry.getToolDefinitions(defaultCtx).map((def) => def.name)).toEqual([
+      "memo-tools.memory_search",
+      "memo-tools.memory_save",
+      "memo-tools.get_memory",
+    ]);
   });
 });
 

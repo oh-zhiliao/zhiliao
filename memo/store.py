@@ -15,12 +15,27 @@ class KnowledgeEntry:
     summary: str
     embedding: np.ndarray
     entry_type: str  # "code", "commit", "qa"
+    role: str = "default"
     status: str = "active"  # "active", "stale", "archived"
     last_verified_at: float = field(default_factory=time.time)
     created_at: float = field(default_factory=time.time)
 
 
 class KnowledgeStore:
+    SELECT_COLUMNS = (
+        "id",
+        "repo_name",
+        "source_file",
+        "content",
+        "summary",
+        "embedding",
+        "entry_type",
+        "role",
+        "status",
+        "last_verified_at",
+        "created_at",
+    )
+
     def __init__(self, db_path: str):
         self.db = sqlite3.connect(db_path)
         self.db.execute("PRAGMA journal_mode=WAL")
@@ -36,6 +51,7 @@ class KnowledgeStore:
                 summary TEXT NOT NULL,
                 embedding BLOB NOT NULL,
                 entry_type TEXT NOT NULL DEFAULT 'code',
+                role TEXT NOT NULL DEFAULT 'default',
                 status TEXT NOT NULL DEFAULT 'active',
                 last_verified_at REAL NOT NULL,
                 created_at REAL NOT NULL
@@ -45,6 +61,8 @@ class KnowledgeStore:
             CREATE INDEX IF NOT EXISTS idx_knowledge_status ON knowledge(status);
             CREATE INDEX IF NOT EXISTS idx_knowledge_source ON knowledge(repo_name, source_file);
         """)
+        self._ensure_role_column()
+        self.db.execute("CREATE INDEX IF NOT EXISTS idx_knowledge_repo_role ON knowledge(repo_name, role)")
         # FTS5 virtual table for BM25 text search (standalone, manually synced)
         self.db.execute("""
             CREATE VIRTUAL TABLE IF NOT EXISTS knowledge_fts USING fts5(
@@ -60,16 +78,17 @@ class KnowledgeStore:
         with self.db:  # single transaction
             self.db.execute("""
                 INSERT INTO knowledge (id, repo_name, source_file, content, summary,
-                                       embedding, entry_type, status, last_verified_at, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                       embedding, entry_type, role, status, last_verified_at, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
                     content=excluded.content,
                     summary=excluded.summary,
                     embedding=excluded.embedding,
+                    role=excluded.role,
                     status=excluded.status,
                     last_verified_at=excluded.last_verified_at
-            """, (entry.id, entry.repo_name, entry.source_file, entry.content,
-                  entry.summary, emb_blob, entry.entry_type, entry.status,
+            """, (entry.id, entry.repo_name, entry.source_file, entry.content, entry.summary,
+                  emb_blob, entry.entry_type, entry.role, entry.status,
                   entry.last_verified_at, entry.created_at))
             self.db.execute("DELETE FROM knowledge_fts WHERE id = ?", (entry.id,))
             self.db.execute(
@@ -79,38 +98,50 @@ class KnowledgeStore:
 
     def get(self, entry_id: str) -> Optional[KnowledgeEntry]:
         row = self.db.execute(
-            "SELECT * FROM knowledge WHERE id = ?", (entry_id,)
+            f"SELECT {self._select_clause()} FROM knowledge WHERE id = ?",
+            (entry_id,),
         ).fetchone()
         if not row:
             return None
         return self._row_to_entry(row)
 
-    def fts_search(self, query: str, limit: int = 10, repo_name: str = None) -> list[KnowledgeEntry]:
+    def fts_search(
+        self,
+        query: str,
+        limit: int = 10,
+        repo_name: str = None,
+        role: str = "default",
+    ) -> list[KnowledgeEntry]:
         # Quote each word to prevent FTS5 operator injection (AND, OR, NOT, NEAR, *, ^)
         words = query.split()
         if not words:
             return []
         safe_query = " ".join('"' + w.replace('"', '""') + '"' for w in words)
-        where_extra = ""
-        params: list = [safe_query]
+        where_parts = ["k.status = 'active'", "k.role = ?"]
+        params: list = [safe_query, role]
         if repo_name:
-            where_extra = "AND k.repo_name = ?"
+            where_parts.append("k.repo_name = ?")
             params.append(repo_name)
         params.append(limit)
         rows = self.db.execute(f"""
-            SELECT k.* FROM knowledge k
+            SELECT {self._select_clause('k')} FROM knowledge k
             JOIN knowledge_fts fts ON k.id = fts.id
             WHERE knowledge_fts MATCH ?
-            AND k.status = 'active'
-            {where_extra}
+            AND {" AND ".join(where_parts)}
             ORDER BY rank
             LIMIT ?
         """, params).fetchall()
         return [self._row_to_entry(r) for r in rows]
 
-    def vector_search(self, query_vec: np.ndarray, limit: int = 10, repo_name: str = None) -> list[KnowledgeEntry]:
-        where_clause = "WHERE status = 'active'"
-        params: list = []
+    def vector_search(
+        self,
+        query_vec: np.ndarray,
+        limit: int = 10,
+        repo_name: str = None,
+        role: str = "default",
+    ) -> list[KnowledgeEntry]:
+        where_clause = "WHERE status = 'active' AND role = ?"
+        params: list = [role]
         if repo_name:
             where_clause += " AND repo_name = ?"
             params.append(repo_name)
@@ -139,7 +170,8 @@ class KnowledgeStore:
         # Second pass: fetch full entries for top results only
         placeholders = ",".join("?" * len(top_ids))
         full_rows = self.db.execute(
-            f"SELECT * FROM knowledge WHERE id IN ({placeholders})", top_ids
+            f"SELECT {self._select_clause()} FROM knowledge WHERE id IN ({placeholders})",
+            top_ids,
         ).fetchall()
 
         # Restore score-based ordering
@@ -149,7 +181,7 @@ class KnowledgeStore:
 
     def list_by_repo(self, repo_name: str) -> list[KnowledgeEntry]:
         rows = self.db.execute(
-            "SELECT * FROM knowledge WHERE repo_name = ? AND status = 'active'",
+            f"SELECT {self._select_clause()} FROM knowledge WHERE repo_name = ? AND status = 'active'",
             (repo_name,),
         ).fetchall()
         return [self._row_to_entry(r) for r in rows]
@@ -189,7 +221,7 @@ class KnowledgeStore:
 
     def get_entries_by_source(self, repo_name: str, source_file: str) -> list[KnowledgeEntry]:
         rows = self.db.execute(
-            "SELECT * FROM knowledge WHERE repo_name = ? AND source_file = ?",
+            f"SELECT {self._select_clause()} FROM knowledge WHERE repo_name = ? AND source_file = ?",
             (repo_name, source_file),
         ).fetchall()
         return [self._row_to_entry(r) for r in rows]
@@ -213,10 +245,26 @@ class KnowledgeStore:
             summary=row[4],
             embedding=np.frombuffer(row[5], dtype=np.float32),
             entry_type=row[6],
-            status=row[7],
-            last_verified_at=row[8],
-            created_at=row[9],
+            role=row[7],
+            status=row[8],
+            last_verified_at=row[9],
+            created_at=row[10],
         )
+
+    def _ensure_role_column(self):
+        columns = {
+            row[1]
+            for row in self.db.execute("PRAGMA table_info(knowledge)").fetchall()
+        }
+        if "role" not in columns:
+            self.db.execute("ALTER TABLE knowledge ADD COLUMN role TEXT NOT NULL DEFAULT 'default'")
+        self.db.execute("UPDATE knowledge SET role = 'default' WHERE role IS NULL OR role = ''")
+        self.db.commit()
+
+    def _select_clause(self, alias: str | None = None) -> str:
+        if alias:
+            return ", ".join(f"{alias}.{column}" for column in self.SELECT_COLUMNS)
+        return ", ".join(self.SELECT_COLUMNS)
 
     @staticmethod
     def _cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:

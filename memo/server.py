@@ -91,6 +91,7 @@ class CommitEntry(BaseModel):
     author: str
     date: str
     diff_stat: str = ""
+    changed_files: list[str] = []
 
 
 class IndexCommitsRequest(BaseModel):
@@ -127,6 +128,7 @@ class SaveRequest(BaseModel):
     source: str  # e.g. "chat:group_id" or "chat:user_id"
     content: str
     summary: str
+    role: str = "default"
 
 
 class SaveResponse(BaseModel):
@@ -138,6 +140,7 @@ class SearchRequest(BaseModel):
     query: str
     repo_name: Optional[str] = None
     limit: int = 10
+    role: str = "default"
 
 
 class SearchResponse(BaseModel):
@@ -207,6 +210,7 @@ async def save(req: SaveRequest, _auth: None = Depends(_require_auth)):
         summary=req.summary,
         embedding=embedding,
         entry_type="qa",
+        role=req.role or "default",
     )
     state.store.upsert(entry)
     return SaveResponse(id=entry_id, status="saved")
@@ -216,7 +220,10 @@ async def save(req: SaveRequest, _auth: None = Depends(_require_auth)):
 async def search(req: SearchRequest, _auth: None = Depends(_require_auth)):
     _require_initialized()
     results = await state.search.search(
-        req.query, limit=req.limit, repo_name=req.repo_name
+        req.query,
+        limit=req.limit,
+        repo_name=req.repo_name,
+        role=req.role or "default",
     )
     return SearchResponse(results=results)
 

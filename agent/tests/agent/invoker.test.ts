@@ -148,6 +148,40 @@ describe("AgentInvoker (Anthropic)", () => {
     expect(mockTools.getSystemPromptAddendum).toHaveBeenCalledWith(requestContext);
   });
 
+  it("auto-injects memo tools with the current request context", async () => {
+    mockAnthropicCreate.mockResolvedValueOnce({
+      content: [{ type: "text", text: "done" }],
+      stop_reason: "end_turn",
+      usage: { input_tokens: 10, output_tokens: 5 },
+    });
+
+    mockTools.getToolDefinitions = vi.fn().mockReturnValue([
+      { name: "git_file_read", description: "Read a file", input_schema: { type: "object", properties: {}, required: [] } },
+      { name: "memo-tools.get_memory", description: "memory", input_schema: { type: "object", properties: {}, required: [] } },
+      { name: "memo-tools.memory_search", description: "memory", input_schema: { type: "object", properties: {}, required: ["query"] } },
+    ]);
+    mockTools.hasTool = vi.fn().mockImplementation((name: string) =>
+      name === "memo-tools.get_memory" || name === "memo-tools.memory_search"
+    );
+    mockTools.executeTool = vi.fn()
+      .mockResolvedValueOnce("project memory")
+      .mockResolvedValueOnce("complaint scoped memory");
+
+    const requestContext = {
+      channel: "feishu" as const,
+      chatType: "group" as const,
+      chatId: "oc_group_1",
+      userId: "ou_u1",
+      role: "complaint",
+      logId: "log1",
+    };
+
+    await invoker.ask("hello", "session-hidden-memo", undefined, requestContext);
+
+    expect(mockTools.executeTool).toHaveBeenCalledWith("memo-tools.get_memory", {}, requestContext);
+    expect(mockTools.executeTool).toHaveBeenCalledWith("memo-tools.memory_search", { query: "hello" }, requestContext);
+  });
+
   it("treats tool calls as actionable even when stop_reason is end_turn", async () => {
     mockAnthropicCreate.mockResolvedValueOnce({
       content: [

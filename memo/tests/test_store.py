@@ -1,4 +1,5 @@
 import os
+import sqlite3
 import tempfile
 import time
 
@@ -33,6 +34,7 @@ def test_upsert_and_get(store):
     assert result.id == "k1"
     assert result.content == "The main entry point initializes the server"
     assert result.source_file == "src/main.ts"
+    assert result.role == "default"
     np.testing.assert_array_almost_equal(result.embedding, [0.1, 0.2, 0.3])
 
 
@@ -256,6 +258,89 @@ def test_fts_search_with_repo_filter(store):
     results = store.fts_search("Authentication", repo_name="proj-b")
     assert len(results) == 1
     assert results[0].id == "k2"
+
+
+def test_initializes_role_column_for_legacy_rows():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        db_path = os.path.join(tmpdir, "legacy.db")
+        db = sqlite3.connect(db_path)
+        db.executescript("""
+            CREATE TABLE knowledge (
+                id TEXT PRIMARY KEY,
+                repo_name TEXT NOT NULL,
+                source_file TEXT NOT NULL,
+                content TEXT NOT NULL,
+                summary TEXT NOT NULL,
+                embedding BLOB NOT NULL,
+                entry_type TEXT NOT NULL DEFAULT 'code',
+                status TEXT NOT NULL DEFAULT 'active',
+                last_verified_at REAL NOT NULL,
+                created_at REAL NOT NULL
+            );
+            INSERT INTO knowledge (
+                id, repo_name, source_file, content, summary, embedding,
+                entry_type, status, last_verified_at, created_at
+            ) VALUES (
+                'legacy-1', 'proj', 'chat:user1', 'legacy content', 'legacy summary', x'00000000',
+                'qa', 'active', 1.0, 1.0
+            );
+        """)
+        db.commit()
+        db.close()
+
+        store = KnowledgeStore(db_path)
+        try:
+            result = store.get("legacy-1")
+            assert result is not None
+            assert result.role == "default"
+            columns = {
+                row[1]: row[4]
+                for row in store.db.execute("PRAGMA table_info(knowledge)").fetchall()
+            }
+            assert columns["role"] == "'default'"
+        finally:
+            store.close()
+
+
+def test_fts_search_filters_by_role(store):
+    store.upsert(KnowledgeEntry(
+        id="k1", repo_name="proj", source_file="chat:default",
+        content="Authentication runbook for the default role",
+        summary="Default auth", embedding=np.zeros(3, dtype=np.float32),
+        entry_type="qa", role="default",
+    ))
+    store.upsert(KnowledgeEntry(
+        id="k2", repo_name="proj", source_file="chat:complaint",
+        content="Authentication runbook for the complaint role",
+        summary="Complaint auth", embedding=np.zeros(3, dtype=np.float32),
+        entry_type="qa", role="complaint",
+    ))
+
+    results = store.fts_search("Authentication runbook", role="complaint")
+
+    assert [entry.id for entry in results] == ["k2"]
+
+
+def test_vector_search_filters_by_role(store):
+    store.upsert(KnowledgeEntry(
+        id="k1", repo_name="proj", source_file="chat:default",
+        content="default", summary="default",
+        embedding=np.array([1.0, 0.0, 0.0], dtype=np.float32),
+        entry_type="qa", role="default",
+    ))
+    store.upsert(KnowledgeEntry(
+        id="k2", repo_name="proj", source_file="chat:complaint",
+        content="complaint", summary="complaint",
+        embedding=np.array([1.0, 0.0, 0.0], dtype=np.float32),
+        entry_type="qa", role="complaint",
+    ))
+
+    results = store.vector_search(
+        np.array([1.0, 0.0, 0.0], dtype=np.float32),
+        role="complaint",
+    )
+
+    assert [entry.id for entry in results] == ["k2"]
 
 
 # --- Tests for fts_search with FTS5 special characters ---

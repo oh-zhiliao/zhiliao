@@ -85,6 +85,25 @@ async def test_hybrid_search_with_repo_filter(store, mock_llm):
 
 
 @pytest.mark.asyncio
+async def test_hybrid_search_with_role_filter(store, mock_llm):
+    store.upsert(KnowledgeEntry(
+        id="complaint1", repo_name="proj", source_file="chat:complaint",
+        content="Authentication module handles complaint escalations",
+        summary="complaint auth",
+        embedding=np.array([1.0, 0.0, 0.0], dtype=np.float32),
+        entry_type="qa",
+        role="complaint",
+    ))
+    search = HybridSearch(store=store, llm=mock_llm)
+
+    results = await search.search("Authentication", limit=10, role="complaint")
+
+    assert len(results) >= 1
+    assert all(item["id"] != "k0" for item in results)
+    assert results[0]["id"] == "complaint1"
+
+
+@pytest.mark.asyncio
 async def test_hybrid_search_fts_only(store, mock_llm):
     # Mock vector_search to return empty list so only FTS contributes
     from unittest.mock import patch

@@ -119,3 +119,32 @@ async def test_index_commits_idempotent(store, mock_llm):
     all_entries = store.list_by_repo("my-repo")
     commit_entries = [e for e in all_entries if e.id == "my-repo:commit:abc1234"]
     assert len(commit_entries) == 1
+
+
+@pytest.mark.asyncio
+async def test_index_commits_scopes_entries_by_role(store, mock_llm):
+    indexer = CommitIndexer(store=store, llm=mock_llm)
+
+    commits = [
+        {
+            "hash": "abc1234",
+            "message": "docs: update complaint knowledge",
+            "author": "Alice",
+            "date": "2026-04-02T10:00:00Z",
+            "diff_stat": "doris/roles/complaint/faq.md | 4 ++--",
+            "changed_files": ["doris/roles/complaint/faq.md"],
+        },
+    ]
+
+    await indexer.index_commits("mysql-query-knowledge", commits)
+
+    complaint_entry = store.get("mysql-query-knowledge:commit:abc1234:complaint")
+    default_entry = store.get("mysql-query-knowledge:commit:abc1234:default")
+    complaint_daily = store.get("mysql-query-knowledge:daily:2026-04-02:complaint")
+
+    assert complaint_entry is not None
+    assert complaint_entry.role == "complaint"
+    assert "complaint" in complaint_entry.content
+    assert default_entry is None
+    assert complaint_daily is not None
+    assert complaint_daily.role == "complaint"
