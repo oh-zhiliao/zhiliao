@@ -26,6 +26,7 @@ PID_DIR="$DATA_DIR/pids"
 LOG_DIR="$DATA_DIR/logs"
 MEMO_VENV="$ROOT_DIR/memo/.venv"
 MEMO_PORT=8090
+REVISION_HELPER="$ROOT_DIR/scripts/write-deploy-revision.sh"
 
 # ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -57,6 +58,17 @@ wait_for_health() {
     (( elapsed++ ))
   done
   return 1
+}
+
+write_revision_marker() {
+  if [[ ! -f "$REVISION_HELPER" ]]; then
+    return 0
+  fi
+  log "Writing deploy revision marker..."
+  bash "$REVISION_HELPER" \
+    --deploy-root "$ROOT_DIR" \
+    --main-repo "$ROOT_DIR" \
+    --plugins-root "$ROOT_DIR/plugins"
 }
 
 # ─── setup ──────────────────────────────────────────────────────────────────
@@ -235,6 +247,7 @@ cmd_start() {
   fi
   start_memo
   start_agent
+  write_revision_marker
   log "All services started."
 }
 

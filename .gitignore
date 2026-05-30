@@ -5,6 +5,7 @@ data/
 .env
 config.yaml
 SOUL.md
+DEPLOY_REVISION.json
 
 memo/.venv/
 memo/__pycache__/

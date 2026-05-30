@@ -230,6 +230,19 @@ docker compose build
 docker compose up -d
 ```
 
+### Deployment revision marker
+
+Successful deploy flows write `DEPLOY_REVISION.json` into the deployment root. The file records the deployed main checkout revision plus every git-backed plugin revision so incident triage can quickly confirm which code is live.
+
+For mounted-source Docker deployments whose compose root lives outside the repo, run the same helper from the deployment root after syncing code:
+
+```bash
+bash code/zhiliao/scripts/write-deploy-revision.sh \
+  --deploy-root . \
+  --main-repo code/zhiliao \
+  --plugins-root code/plugins
+```
+
 ### Verify
 
 ```bash

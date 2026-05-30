@@ -1,6 +1,9 @@
 #!/bin/bash
 set -e
 
+ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REVISION_HELPER="$ROOT_DIR/scripts/write-deploy-revision.sh"
+
 # Usage:
 #   bash deploy.sh          # Quick: mount source + tsx (dev/test)
 #   bash deploy.sh --full   # Full: compile into release image (production/k8s)
@@ -38,6 +41,17 @@ ensure_build_image() {
   fi
 }
 
+write_revision_marker() {
+  if [ ! -f "$REVISION_HELPER" ]; then
+    return 0
+  fi
+  echo "Writing deploy revision marker..."
+  bash "$REVISION_HELPER" \
+    --deploy-root "$ROOT_DIR" \
+    --main-repo "$ROOT_DIR" \
+    --plugins-root "$ROOT_DIR/plugins"
+}
+
 case "$MODE" in
   --full)
     echo "=== Full deploy: building release image ==="
@@ -45,6 +59,7 @@ case "$MODE" in
     ensure_build_image
     docker compose build
     docker compose up -d
+    write_revision_marker
     docker compose logs agent --tail=5 --no-log-prefix
     ;;
   *)
@@ -52,6 +67,7 @@ case "$MODE" in
     preflight
     ensure_build_image
     docker compose "${COMPOSE_DEV[@]}" up -d agent
+    write_revision_marker
     docker compose "${COMPOSE_DEV[@]}" logs agent --tail=5 --no-log-prefix
     ;;
 esac
